@@ -3,81 +3,27 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#02040a" />
+  <meta name="theme-color" content="#000000" />
   <title>Astrolander</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <canvas id="game"></canvas>
 
-  <!-- Title -->
-  <div id="title" class="screen">
-    <h1 class="logo">ASTRO<span>LANDER</span></h1>
-    <p class="sub">Land on the pad. Watch your fuel.</p>
-    <button class="btn primary" id="startBtn">START</button>
-    <button class="btn" id="scoresBtn">HIGH SCORES</button>
-    <div class="help">
-      <div><b>◀ ▶</b> rotate &nbsp; <b>THRUST</b> fire engine</div>
-      <div>Keyboard: ← → / A D to rotate, ↑ / W / SPACE to thrust</div>
-      <div>Land upright, slowly, and centred on the pad.</div>
-    </div>
-  </div>
+  <button id="pauseBtn" class="pause hidden" aria-label="Pause">
+    <svg viewBox="0 0 12 14"><path d="M3 1V13M9 1V13" /></svg>
+  </button>
 
-  <!-- Level results tally -->
-  <div id="results" class="screen hidden">
-    <h2 class="good">LANDING SUCCESSFUL</h2>
-    <table class="tally">
-      <tr id="r-fuel"><td>FUEL REMAINING</td><td class="num">0</td></tr>
-      <tr id="r-fuelbonus"><td>FUEL BONUS</td><td class="num">0</td></tr>
-      <tr id="r-speed"><td>LANDING SPEED BONUS</td><td class="num">0</td></tr>
-      <tr id="r-accuracy"><td>LANDING ACCURACY BONUS</td><td class="num">0</td></tr>
-      <tr id="r-total" class="total"><td>LEVEL TOTAL</td><td class="num">0</td></tr>
-    </table>
-    <div class="score-line">SCORE <span id="r-score">0</span></div>
-    <button class="btn primary hidden" id="nextBtn">NEXT LEVEL</button>
-  </div>
-
-  <!-- Game over -->
-  <div id="gameover" class="screen hidden">
-    <h2 class="bad">GAME OVER</h2>
-    <div class="score-line big">SCORE <span id="go-score">0</span></div>
-    <div class="score-line">REACHED LEVEL <span id="go-level">1</span></div>
-    <form id="nameForm" autocomplete="off">
-      <label for="nameInput">ENTER YOUR NAME</label>
-      <input id="nameInput" maxlength="12" placeholder="PILOT" spellcheck="false" />
-      <button class="btn primary" type="submit" id="submitBtn">SUBMIT SCORE</button>
-    </form>
-    <div id="submitMsg" class="msg"></div>
-    <button class="btn" id="skipBtn">SKIP</button>
-  </div>
-
-  <!-- Leaderboard -->
-  <div id="board" class="screen hidden">
-    <h2>HIGH SCORES</h2>
-    <ol id="boardList" class="board"></ol>
-    <div id="boardMsg" class="msg"></div>
-    <button class="btn primary" id="boardBack">MAIN MENU</button>
-  </div>
-
-  <!-- Paused -->
-  <div id="paused" class="screen hidden">
-    <h2>PAUSED</h2>
-    <button class="btn primary" id="resumeBtn">RESUME</button>
-    <button class="btn" id="quitBtn">QUIT</button>
-  </div>
-
-  <button id="pauseBtn" class="pause hidden" aria-label="Pause">II</button>
-
-  <!-- Controls -->
   <div id="controls">
     <div class="rot">
-      <button class="ctl" id="btnLeft" aria-label="Rotate left">◀</button>
-      <button class="ctl" id="btnRight" aria-label="Rotate right">▶</button>
+      <button class="ctl" id="btnLeft" aria-label="Rotate left">
+        <svg viewBox="0 0 20 20"><path d="M14 3L5 10L14 17Z" /></svg>
+      </button>
+      <button class="ctl" id="btnRight" aria-label="Rotate right">
+        <svg viewBox="0 0 20 20"><path d="M6 3L15 10L6 17Z" /></svg>
+      </button>
     </div>
-    <button class="ctl thrust" id="btnThrust" aria-label="Throttle">THRUST</button>
+    <button class="ctl thrust" id="btnThrust" aria-label="Throttle"></button>
   </div>
 
   <script src="game.js"></script>
