@@ -1,0 +1,13 @@
+{
+  "name": "astrolander",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A tribute to the Astrolander minigame from TimeSplitters 2",
+  "scripts": {
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.0"
+  }
+}
