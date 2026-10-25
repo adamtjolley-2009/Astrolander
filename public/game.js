@@ -7,9 +7,9 @@
   const THRUST = 62;           // px/s^2
   const ROT_SPEED = 4.0;       // rad/s
   const BURN_RATE = 55;        // fuel units/s
-  const SAFE_VY = 42;          // max vertical landing speed (px/s)
-  const SAFE_VX = 22;          // max horizontal landing speed (px/s)
-  const SAFE_ANGLE = 0.21;     // ~12 degrees
+  const SAFE_VY = 60;          // max vertical landing speed (px/s)
+  const SAFE_VX = 32;          // max horizontal landing speed (px/s)
+  const SAFE_ANGLE = 0.31;     // ~18 degrees
   const SPEED_UNIT = 10;       // px/s per displayed unit
   const FUEL_BONUS_PER_UNIT = 5;
   const MAX_SPEED_BONUS = 1000;

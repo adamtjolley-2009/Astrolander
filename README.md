@@ -16,7 +16,7 @@ A browser tribute to the **Astrolander** minigame from *TimeSplitters 2*. Pilot 
 - **Landing speed bonus**: up to 1000, more the softer you touch down
 - **Landing accuracy bonus**: up to 1000, more the closer you land to the pad centre
 
-A safe landing needs both feet on the pad, the ship within ~12° of upright, vertical speed ≤ 4.2 and horizontal speed ≤ 2.2. You have 3 ships.
+A safe landing needs both feet on the pad, the ship within ~18° of upright, vertical speed ≤ 6.0 and horizontal speed ≤ 3.2. You have 3 ships.
 
 ## Stack
 - `public/`: static HTML5 canvas game (no build step)
