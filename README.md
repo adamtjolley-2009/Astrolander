@@ -1,6 +1,6 @@
 # Astrolander
 
-A browser tribute to the **AstroLander** cartridge from *TimeSplitters 2* (played on the Temporal Uplink). Eleven single-screen levels of thin green terrain: touch down on the pad with as much fuel, as little speed, and as much precision as you can. You have 4 ships; crashing restarts the level.
+A browser tribute to the **Astrolander** minigame from *TimeSplitters 2*. Pilot a lunar lander down through increasingly deep, narrow caverns and touch down on the landing pad with as much fuel, as little speed, and as much precision as you can.
 
 ## Controls
 | Action | Touch | Keyboard |
@@ -9,15 +9,14 @@ A browser tribute to the **AstroLander** cartridge from *TimeSplitters 2* (playe
 | Rotate right | ▶ | → / D |
 | Throttle | THRUST | ↑ / W / Space |
 | Pause | II | Esc / P |
-| OK (dialogs) | tap screen / THRUST | Enter |
 
 ## Scoring (per landing)
-- **Fuel remaining**: percentage of the tank left
-- **Fuel bonus**: fuel % × the level's maximum (14,000 to 32,000)
-- **Landing speed bonus**: up to 5,000, more the softer you touch down
-- **Landing accuracy bonus**: up to 5,000, more the closer you land to the pad centre
+- **Fuel remaining**: units left in the tank
+- **Fuel bonus**: 5 points per unit of fuel left
+- **Landing speed bonus**: up to 1000, more the softer you touch down
+- **Landing accuracy bonus**: up to 1000, more the closer you land to the pad centre
 
-A safe landing needs both feet on the pad, the ship within ~12° of upright, and a slow touchdown. Touching any terrain or the frame is a crash.
+A safe landing needs both feet on the pad, the ship within ~12° of upright, vertical speed ≤ 4.2 and horizontal speed ≤ 2.2. You have 3 ships.
 
 ## Stack
 - `public/`: static HTML5 canvas game (no build step)

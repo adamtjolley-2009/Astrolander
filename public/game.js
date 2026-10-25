@@ -1,147 +1,132 @@
-// AstroLander: a tribute to the TimeSplitters 2 Temporal Uplink minigame.
+// Astrolander: a TimeSplitters 2 minigame tribute, drawn in classic vector-arcade style.
 (() => {
   'use strict';
 
   // ---------- Tunables ----------
-  const FIELD_W = 600, FIELD_H = 400;   // playfield units (3:2, like the Uplink screen)
-  const GRAVITY = 22;                   // units/s^2
-  const THRUST = 60;                    // units/s^2
-  const ROT_SPEED = 3.4;                // rad/s
-  const SAFE_VY = 40;                   // max vertical landing speed
-  const SAFE_VX = 20;                   // max horizontal landing speed
-  const SAFE_ANGLE = 0.21;              // ~12 degrees
-  const MAX_SPEED_BONUS = 5000;
-  const MAX_ACCURACY_BONUS = 5000;
-  const START_LIVES = 4;
+  const GRAVITY = 22;          // px/s^2
+  const THRUST = 62;           // px/s^2
+  const ROT_SPEED = 4.0;       // rad/s
+  const BURN_RATE = 55;        // fuel units/s
+  const SAFE_VY = 42;          // max vertical landing speed (px/s)
+  const SAFE_VX = 22;          // max horizontal landing speed (px/s)
+  const SAFE_ANGLE = 0.21;     // ~12 degrees
+  const SPEED_UNIT = 10;       // px/s per displayed unit
+  const FUEL_BONUS_PER_UNIT = 5;
+  const MAX_SPEED_BONUS = 1000;
+  const MAX_ACCURACY_BONUS = 1000;
+  const START_LIVES = 3;
+  const WORLD_W = 1000;
 
-  const COLORS = {
-    terrain: '#2e9e3e', frame: '#c8c8c8', pad: '#e6e6e6', ship: '#4d8dff',
-    score: '#33c3cf', text: '#f2f2f2', fuel: '#d6c93a', fuelEdge: '#a39a3c', flame: '#ffe680',
-  };
-  const FONT = '"Arial", "Helvetica Neue", Helvetica, sans-serif';
+  // Classic arrowhead ship (local coords, nose up = -y)
+  const HULL = [[0, -12], [8, 10], [-8, 10]];
+  const FEET = [[-8, 10], [8, 10]];
+  const FOOT_Y = 10;
 
-  // Ship: slim outline triangle (local coords, nose up = -y)
-  const HULL = [[0, -10], [7, 8], [-7, 8]];
-  const FEET = [[-7, 8], [7, 8]];
-  const FOOT_Y = 8;
-
-  // ---------- Levels ----------
-  // ground: open polylines; rocks: closed polygons; pad: landing strip on the ground.
-  // fuel: seconds of full thrust in the tank; bonus: maximum fuel bonus.
-  function slab(x0, x1, y, th, amp, phase) {
-    const top = [], bot = [];
-    for (let x = x0; x <= x1 + 0.1; x += (x1 - x0) / 6) {
-      top.push([x, y + Math.sin(x * 0.025 + phase) * amp]);
-      bot.push([x, y + th + Math.sin(x * 0.03 + phase + 1.7) * amp]);
-    }
-    return top.concat(bot.reverse());
-  }
-  const LEVELS = [
-    {
-      name: 'STRAIGHT DROP', fuel: 10, bonus: 14000, start: [300, 40],
-      ground: [[[-10, 20], [20, 70], [270, 345], [330, 345], [530, 60], [610, 100]]],
-      rocks: [], pad: [270, 330, 345],
-    },
-    {
-      name: 'HILL VALLEY', fuel: 11, bonus: 16000, start: [280, 40],
-      ground: [[[0, 55], [105, 165], [130, 55], [165, 185], [255, 300], [295, 300], [350, 185], [380, 205], [405, 135], [425, 180], [600, 165]]],
-      rocks: [], pad: [255, 295, 300],
-    },
-    {
-      name: 'CAPPED VOLCANO', fuel: 14, bonus: 18000, start: [70, 40],
-      ground: [[[0, 340], [150, 330], [230, 210], [255, 205], [265, 270], [280, 280], [320, 280], [335, 270], [345, 205], [370, 210], [450, 330], [600, 340]]],
-      rocks: [[[210, 100], [390, 100], [370, 135], [230, 135]]], pad: [280, 320, 280],
-    },
-    {
-      name: 'CHUNKY', fuel: 12, bonus: 16000, start: [320, 40],
-      ground: [[[0, 250], [80, 250], [80, 330], [160, 330], [160, 285], [230, 285], [230, 360], [300, 360], [345, 360], [420, 360], [420, 290], [500, 290], [500, 340], [600, 340]]],
-      rocks: [[[110, 120], [215, 110], [225, 190], [120, 205]], [[380, 150], [480, 140], [490, 220], [390, 230]]],
-      pad: [300, 345, 360],
-    },
-    {
-      name: 'CREVASSE', fuel: 10, bonus: 20000, start: [90, 40],
-      ground: [[[0, 120], [150, 130], [240, 140], [272, 150], [282, 250], [268, 320], [288, 380], [328, 380], [348, 320], [333, 250], [343, 150], [420, 135], [600, 125]]],
-      rocks: [], pad: [288, 328, 380],
-    },
-    {
-      name: 'SHORTCUT', fuel: 18, bonus: 22000, start: [520, 45],
-      ground: [[[0, 300], [30, 385], [200, 390], [360, 375], [400, 375], [600, 365]]],
-      rocks: [[[110, 225], [262, 195], [266, 212], [114, 244]], [[302, 190], [610, 140], [610, 165], [306, 208]]],
-      pad: [360, 400, 375],
-    },
-    {
-      name: 'THE "2"', fuel: 22, bonus: 24000, start: [60, 50],
-      ground: [[[0, 380], [460, 385], [480, 370], [520, 370], [600, 360]]],
-      rocks: [[[-10, 140], [420, 165], [430, 185], [-10, 170]], [[610, 250], [170, 265], [160, 285], [610, 280]]],
-      pad: [480, 520, 370],
-    },
-    {
-      name: 'OVERHANG', fuel: 16, bonus: 20000, start: [70, 45],
-      ground: [[[0, 330], [120, 345], [200, 310], [250, 360], [300, 360], [340, 360], [420, 355], [470, 300], [490, 200], [610, 192]]],
-      rocks: [[[230, 200], [610, 150], [610, 192], [490, 200], [380, 240], [290, 232]]],
-      pad: [300, 340, 360],
-    },
-    {
-      name: 'LARGE INTESTINE', fuel: 28, bonus: 26000, start: [60, 40],
-      ground: [[[0, 392], [60, 390], [100, 390], [600, 392]]],
-      rocks: [slab(-10, 470, 95, 28, 9, 0), slab(130, 610, 200, 28, 9, 2), slab(-10, 470, 300, 25, 7, 4)],
-      pad: [60, 100, 390],
-    },
-    {
-      name: 'NEEDLE', fuel: 20, bonus: 28000, start: [100, 40],
-      ground: [[[0, 390], [420, 390], [460, 390], [600, 390]]],
-      rocks: [
-        [[-10, 110], [470, 110], [470, 125], [-10, 125]], [[520, 110], [610, 110], [610, 125], [520, 125]],
-        [[-10, 210], [90, 210], [90, 225], [-10, 225]], [[140, 210], [610, 210], [610, 225], [140, 225]],
-        [[-10, 305], [330, 305], [330, 320], [-10, 320]], [[380, 305], [610, 305], [610, 320], [380, 320]],
-      ],
-      pad: [420, 460, 390],
-    },
-    {
-      name: 'SMALL INTESTINE', fuel: 30, bonus: 32000, start: [60, 30],
-      ground: [[[0, 392], [520, 392], [560, 392], [600, 392]]],
-      rocks: [slab(-10, 520, 62, 18, 5, 1), slab(80, 610, 142, 18, 5, 3), slab(-10, 520, 222, 18, 5, 5), slab(80, 610, 302, 18, 5, 7)],
-      pad: [520, 560, 392],
-    },
+  // Asteroid outlines (unit radius)
+  const ROCK_SHAPES = [
+    [[0, -1], [0.5, -1], [1, -0.5], [1, 0], [0.5, 1], [-0.25, 1], [-0.25, 0.5], [-0.75, 1], [-1, 0.25], [-0.5, 0], [-1, -0.25], [-0.5, -1]],
+    [[-0.5, -1], [0.25, -1], [1, -0.5], [0.5, -0.25], [1, 0.25], [0.5, 1], [-0.25, 0.75], [-0.5, 1], [-1, 0.5], [-1, -0.5]],
+    [[-0.25, -1], [0.5, -1], [1, -0.25], [1, 0.25], [0.5, 1], [0, 1], [0, 0.25], [-0.5, 1], [-1, 0.25], [-0.75, 0], [-1, -0.5], [-0.5, -0.5]],
   ];
 
-  function buildLevel(n) {
-    const def = LEVELS[n - 1];
-    const [px1, px2, py] = def.pad;
-    const segs = [];
-    const add = (a, b) => {
-      const pad = a[1] === py && b[1] === py && Math.min(a[0], b[0]) >= px1 - 0.5 && Math.max(a[0], b[0]) <= px2 + 0.5;
-      segs.push({ ax: a[0], ay: a[1], bx: b[0], by: b[1], pad,
-        minX: Math.min(a[0], b[0]), maxX: Math.max(a[0], b[0]), minY: Math.min(a[1], b[1]), maxY: Math.max(a[1], b[1]) });
-    };
-    for (const line of def.ground) for (let i = 0; i < line.length - 1; i++) add(line[i], line[i + 1]);
-    for (const poly of def.rocks) for (let i = 0; i < poly.length; i++) add(poly[i], poly[(i + 1) % poly.length]);
-    return { n, ...def, segs, pad: { x1: px1, x2: px2, y: py } };
+  // ---------- Vector font (4x6 grid, y down) ----------
+  const FONT = {
+    A: [[[0, 6], [0, 2], [2, 0], [4, 2], [4, 6]], [[0, 4], [4, 4]]],
+    B: [[[0, 6], [0, 0], [3, 0], [4, 1], [4, 2], [3, 3], [0, 3]], [[3, 3], [4, 4], [4, 5], [3, 6], [0, 6]]],
+    C: [[[4, 0], [0, 0], [0, 6], [4, 6]]],
+    D: [[[0, 0], [2, 0], [4, 2], [4, 4], [2, 6], [0, 6], [0, 0]]],
+    E: [[[4, 0], [0, 0], [0, 6], [4, 6]], [[0, 3], [3, 3]]],
+    F: [[[4, 0], [0, 0], [0, 6]], [[0, 3], [3, 3]]],
+    G: [[[4, 2], [4, 0], [0, 0], [0, 6], [4, 6], [4, 4], [2, 4]]],
+    H: [[[0, 0], [0, 6]], [[4, 0], [4, 6]], [[0, 3], [4, 3]]],
+    I: [[[0, 0], [4, 0]], [[2, 0], [2, 6]], [[0, 6], [4, 6]]],
+    J: [[[4, 0], [4, 6], [2, 6], [0, 4]]],
+    K: [[[0, 0], [0, 6]], [[4, 0], [0, 3], [4, 6]]],
+    L: [[[0, 0], [0, 6], [4, 6]]],
+    M: [[[0, 6], [0, 0], [2, 2], [4, 0], [4, 6]]],
+    N: [[[0, 6], [0, 0], [4, 6], [4, 0]]],
+    O: [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0]]],
+    P: [[[0, 6], [0, 0], [4, 0], [4, 3], [0, 3]]],
+    Q: [[[0, 0], [4, 0], [4, 4], [2, 6], [0, 6], [0, 0]], [[2, 4], [4, 6]]],
+    R: [[[0, 6], [0, 0], [4, 0], [4, 3], [0, 3]], [[1, 3], [4, 6]]],
+    S: [[[4, 0], [0, 0], [0, 3], [4, 3], [4, 6], [0, 6]]],
+    T: [[[0, 0], [4, 0]], [[2, 0], [2, 6]]],
+    U: [[[0, 0], [0, 6], [4, 6], [4, 0]]],
+    V: [[[0, 0], [2, 6], [4, 0]]],
+    W: [[[0, 0], [0, 6], [2, 4], [4, 6], [4, 0]]],
+    X: [[[0, 0], [4, 6]], [[4, 0], [0, 6]]],
+    Y: [[[0, 0], [2, 2], [4, 0]], [[2, 2], [2, 6]]],
+    Z: [[[0, 0], [4, 0], [0, 6], [4, 6]]],
+    0: [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0]]],
+    1: [[[2, 0], [2, 6]]],
+    2: [[[0, 0], [4, 0], [4, 3], [0, 3], [0, 6], [4, 6]]],
+    3: [[[0, 0], [4, 0], [4, 6], [0, 6]], [[0, 3], [4, 3]]],
+    4: [[[0, 0], [0, 3], [4, 3]], [[4, 0], [4, 6]]],
+    5: [[[4, 0], [0, 0], [0, 3], [4, 3], [4, 6], [0, 6]]],
+    6: [[[0, 0], [0, 6], [4, 6], [4, 3], [0, 3]]],
+    7: [[[0, 0], [4, 0], [4, 6]]],
+    8: [[[0, 0], [4, 0], [4, 6], [0, 6], [0, 0]], [[0, 3], [4, 3]]],
+    9: [[[4, 3], [0, 3], [0, 0], [4, 0], [4, 6]]],
+    '.': [[[2, 5.5], [2, 6]]],
+    ',': [[[2, 5], [1, 7]]],
+    ':': [[[2, 1.5], [2, 2]], [[2, 4], [2, 4.5]]],
+    '-': [[[1, 3], [3, 3]]],
+    '_': [[[0, 6], [4, 6]]],
+    '!': [[[2, 0], [2, 4]], [[2, 5.5], [2, 6]]],
+    '?': [[[0, 1], [0, 0], [4, 0], [4, 3], [2, 3], [2, 4]], [[2, 5.5], [2, 6]]],
+    '/': [[[0, 6], [4, 0]]],
+    "'": [[[2, 0], [2, 2]]],
+    '°': [[[1, 0], [2.5, 0], [2.5, 1.5], [1, 1.5], [1, 0]]],
+    '+': [[[2, 1], [2, 5]], [[0, 3], [4, 3]]],
+    '<': [[[4, 0], [0, 3], [4, 6], [4, 0]]],
+    '>': [[[0, 0], [4, 3], [0, 6], [0, 0]]],
+    '→': [[[0, 3], [4, 3]], [[2, 1], [4, 3], [2, 5]]],
+    '←': [[[4, 3], [0, 3]], [[2, 1], [0, 3], [2, 5]]],
+    '↑': [[[2, 6], [2, 0]], [[0, 2], [2, 0], [4, 2]]],
+    '↓': [[[2, 0], [2, 6]], [[0, 4], [2, 6], [4, 4]]],
+  };
+  // SVG path for a string (used for the THRUST button label)
+  function vtPath(str) {
+    let d = '', ox = 0;
+    for (const ch of str.toUpperCase()) {
+      for (const stroke of FONT[ch] || []) {
+        d += stroke.map((p, i) => (i ? 'L' : 'M') + (ox + p[0]) + ' ' + p[1]).join('');
+      }
+      ox += 6;
+    }
+    return { d, w: ox - 2 };
   }
 
-  // ---------- DOM & layout ----------
+  // ---------- DOM ----------
   const $ = (id) => document.getElementById(id);
   const canvas = $('game');
   const ctx = canvas.getContext('2d');
+  {
+    const p = vtPath('THRUST');
+    $('btnThrust').innerHTML = `<svg viewBox="-1 -1 ${p.w + 2} 8"><path d="${p.d}"/></svg>`;
+  }
 
-  let W = 0, H = 0, DPR = 1, fx = 0, fy = 0, fw = 0, fh = 0, s = 1;
+  let W = 0, H = 0, DPR = 1, scale = 1;
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
-    const top = 40, bottom = H > 560 ? 150 : 12;
-    const availH = Math.max(120, H - top - bottom);
-    fw = Math.min(W - 24, availH * FIELD_W / FIELD_H);
-    fh = fw * FIELD_H / FIELD_W;
-    fx = (W - fw) / 2;
-    fy = top + Math.max(0, (availH - fh) / 2.5);
-    s = fw / FIELD_W;
+    scale = Math.max(0.8, Math.min(W / 400, H / 560, 1.7));
   }
   window.addEventListener('resize', resize);
   resize();
 
   // ---------- Utils ----------
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
   function wrapAngle(a) { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; }
   function segIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
     const rX = bx - ax, rY = by - ay, sX = dx - cx, sY = dy - cy;
@@ -150,6 +135,117 @@
     const t = ((cx - ax) * sY - (cy - ay) * sX) / den;
     const u = ((cx - ax) * rY - (cy - ay) * rX) / den;
     return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  }
+  function withBounds(s) {
+    s.minX = Math.min(s.ax, s.bx); s.maxX = Math.max(s.ax, s.bx);
+    s.minY = Math.min(s.ay, s.by); s.maxY = Math.max(s.ay, s.by);
+    return s;
+  }
+
+  // ---------- Level generation ----------
+  function genLevel(n) {
+    const rnd = mulberry32(n * 9973 + 1337);
+    const tunnel = n > 1;
+    const depth = 520 + (n - 1) * 420;
+    const floorBase = depth + 300;
+    const step = 130;
+    const rows = [];
+    let cx = WORLD_W / 2;
+    const minW = Math.max(190, 470 - n * 45);
+    for (let y = -1400; y <= depth; y += step) {
+      let w = tunnel ? minW + rnd() * 110 : WORLD_W - 30;
+      if (y < 60) w = Math.max(w, 360);
+      rows.push({ y, cx, w });
+      if (tunnel && y >= 60) {
+        cx += (rnd() - 0.5) * 2 * Math.min(115, 45 + n * 14);
+      }
+      cx = clamp(cx, w / 2 + 25, WORLD_W - w / 2 - 25);
+    }
+    // landing chamber
+    const last = rows[rows.length - 1];
+    const chamberW = tunnel ? Math.max(420, last.w + 120) : WORLD_W - 30;
+    const ccx = clamp(last.cx, chamberW / 2 + 15, WORLD_W - chamberW / 2 - 15);
+    rows.push({ y: depth + 120, cx: ccx, w: chamberW });
+
+    const jag = tunnel ? 18 : 0;
+    const left = [], right = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      left.push([r.cx - r.w / 2 + (rnd() - 0.5) * jag, r.y]);
+      right.push([r.cx + r.w / 2 + (rnd() - 0.5) * jag, r.y]);
+      if (i < rows.length - 1 && tunnel) {
+        const nr = rows[i + 1];
+        const my = (r.y + nr.y) / 2;
+        const lx = (r.cx - r.w / 2 + nr.cx - nr.w / 2) / 2;
+        const rx = (r.cx + r.w / 2 + nr.cx + nr.w / 2) / 2;
+        left.push([lx + (rnd() - 0.2) * jag * 1.6, my]);
+        right.push([rx - (rnd() - 0.2) * jag * 1.6, my]);
+      }
+    }
+
+    // floor with landing pad
+    const L = ccx - chamberW / 2, R = ccx + chamberW / 2;
+    const padW = Math.max(56, 120 - n * 8);
+    const padX1 = lerp(L + 50, R - 50 - padW, rnd());
+    const padX2 = padX1 + padW;
+    const amp = tunnel ? 55 : 170;
+    const padY = floorBase - 30 - rnd() * (tunnel ? 30 : 110);
+    const floor = [];
+    floor.push([L, floorBase - 40 - rnd() * amp]);
+    for (let x = L + 35; x < padX1 - 20; x += 35 + rnd() * 20) {
+      floor.push([x, floorBase - 10 - rnd() * amp]);
+    }
+    floor.push([padX1 - 8, padY + 10 + rnd() * 20]);
+    const padIndex = floor.length;
+    floor.push([padX1, padY], [padX2, padY]);
+    floor.push([padX2 + 8, padY + 10 + rnd() * 20]);
+    for (let x = padX2 + 30; x < R - 20; x += 35 + rnd() * 20) {
+      floor.push([x, floorBase - 10 - rnd() * amp]);
+    }
+    floor.push([R, floorBase - 40 - rnd() * amp]);
+    // walls meet the floor
+    left.push([L, floor[0][1]]);
+    right.push([R, floor[floor.length - 1][1]]);
+
+    // slowly spinning asteroids hanging in the shaft
+    const rocks = [];
+    if (n >= 2) {
+      for (let i = 0; i < rows.length - 2; i++) {
+        const r = rows[i];
+        if (r.y < 200 || r.y > depth - 120 || rnd() > Math.min(0.45, 0.15 + n * 0.05)) continue;
+        const side = rnd() < 0.5 ? -1 : 1;
+        const rad = Math.min(40, r.w * 0.18);
+        const wallX = r.cx + side * r.w / 2;
+        rocks.push({
+          x: wallX - side * (rad + 34), y: r.y + (rnd() - 0.5) * 40, r: rad,
+          shape: ROCK_SHAPES[Math.floor(rnd() * ROCK_SHAPES.length)],
+          a: rnd() * Math.PI * 2, spin: (rnd() - 0.5) * 0.9,
+        });
+      }
+    }
+
+    // static collision segments
+    const segs = [];
+    const addLine = (pts, padAt = -1) => {
+      for (let i = 0; i < pts.length - 1; i++) {
+        segs.push(withBounds({ ax: pts[i][0], ay: pts[i][1], bx: pts[i + 1][0], by: pts[i + 1][1], pad: i === padAt }));
+      }
+    };
+    addLine(left);
+    addLine(right);
+    addLine(floor, padIndex);
+
+    const fuel = Math.round(650 + depth * 0.55 - n * 15);
+    return {
+      n, left, right, floor, padIndex, rocks, segs, tunnel,
+      pad: { x1: padX1, x2: padX2, y: padY },
+      start: { x: WORLD_W / 2, y: -120 },
+      fuel, top: -1400,
+    };
+  }
+  function rockPoints(r) {
+    const c = Math.cos(r.a), s = Math.sin(r.a);
+    return r.shape.map(([x, y]) => [r.x + (x * c - y * s) * r.r, r.y + (x * s + y * c) * r.r]);
   }
 
   // ---------- Audio ----------
@@ -164,7 +260,7 @@
       const src = actx.createBufferSource();
       src.buffer = noiseBuf; src.loop = true;
       const lp = actx.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 420;
+      lp.type = 'lowpass'; lp.frequency.value = 340;
       thrustGain = actx.createGain(); thrustGain.gain.value = 0;
       src.connect(lp).connect(thrustGain).connect(actx.destination);
       src.start();
@@ -172,9 +268,9 @@
   }
   function setThrustSound(on) {
     if (!thrustGain) return;
-    thrustGain.gain.setTargetAtTime(on ? 0.28 : 0, actx.currentTime, 0.03);
+    thrustGain.gain.setTargetAtTime(on ? 0.35 : 0, actx.currentTime, 0.03);
   }
-  function beep(freq, dur, type = 'square', vol = 0.06, when = 0) {
+  function beep(freq, dur, type = 'square', vol = 0.08, when = 0) {
     if (!actx) return;
     const t = actx.currentTime + when;
     const o = actx.createOscillator(), g = actx.createGain();
@@ -184,18 +280,28 @@
     o.connect(g).connect(actx.destination);
     o.start(t); o.stop(t + dur + 0.02);
   }
-  function bang() {
+  function bang(dur = 1.2, vol = 0.7) {
     if (!actx) return;
     const t = actx.currentTime;
     const src = actx.createBufferSource(); src.buffer = noiseBuf;
     const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(2000, t);
-    lp.frequency.exponentialRampToValueAtTime(60, t + 1.1);
+    lp.frequency.setValueAtTime(2400, t);
+    lp.frequency.exponentialRampToValueAtTime(60, t + dur);
     const g = actx.createGain();
-    g.gain.setValueAtTime(0.7, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(lp).connect(g).connect(actx.destination);
-    src.start(t); src.stop(t + 1.25);
+    src.start(t); src.stop(t + dur + 0.05);
+  }
+  // the famous two-note heartbeat, quickening as fuel runs down
+  let beatTimer = 0, beatHigh = false;
+  function updateBeat(dt) {
+    beatTimer -= dt;
+    if (beatTimer > 0) return;
+    const frac = clamp(ship.fuel / level.fuel, 0, 1);
+    beatTimer = lerp(0.28, 1.0, frac);
+    beatHigh = !beatHigh;
+    beep(beatHigh ? 62 : 55, 0.09, 'square', 0.16);
   }
 
   // ---------- Input ----------
@@ -207,7 +313,7 @@
       if (/^[a-zA-Z]$/.test(e.key)) { entryType(e.key.toUpperCase()); e.preventDefault(); return; }
       if (e.code === 'Backspace') { entryBack(); e.preventDefault(); return; }
     }
-    if (e.code === 'Enter' && !e.repeat) { press('ok'); e.preventDefault(); return; }
+    if (e.code === 'Enter' && !e.repeat) { press('thrust'); e.preventDefault(); return; }
     if ((e.code === 'Escape' || e.code === 'KeyP') && !e.repeat) { togglePause(); return; }
     const k = keyMap[e.code];
     if (!k) return;
@@ -239,96 +345,102 @@
   bindHold($('btnRight'), 'right');
   bindHold($('btnThrust'), 'thrust');
   $('pauseBtn').addEventListener('click', () => togglePause());
-  canvas.addEventListener('pointerdown', (e) => { e.preventDefault(); initAudio(); press('ok'); });
 
   // ---------- Game state ----------
-  // title | intro | flying | paused | crashed | results | gameover | complete | entry | board
+  // title | ready | flying | paused | crashed | results | gameover | entry | board
   let state = 'title', stateAge = 0;
   let level = null, levelNum = 1, score = 0, lives = START_LIVES;
-  let ship = null, particles = [], debris = [];
-  let time = 0, frameNo = 0;
+  let ship = null, cam = { x: WORLD_W / 2, y: 0 };
+  let particles = [], debris = [];
+  let stateTimer = 0, time = 0, frameNo = 0;
   let tally = null, entry = null, flash = '';
   let board = [], boardLoaded = false, highlightId = null;
 
-  function setState(st) {
-    state = st; stateAge = 0;
-    $('pauseBtn').classList.toggle('hidden', st !== 'flying' && st !== 'paused');
-    if (st !== 'flying') setThrustSound(false);
+  function setState(s) {
+    state = s; stateAge = 0;
+    $('pauseBtn').classList.toggle('hidden', s !== 'flying' && s !== 'paused');
+    if (s !== 'flying') setThrustSound(false);
   }
 
-  // 'ok' comes from Enter or a tap on the screen; THRUST also confirms dialogs
   function press(key) {
-    const ok = key === 'ok' || key === 'thrust';
     switch (state) {
-      case 'title': if (ok && stateAge > 0.4) startGame(); break;
-      case 'intro': if (ok && stateAge > 0.3) setState('flying'); break;
-      case 'crashed': if (ok && stateAge > 0.8) afterCrash(); break;
+      case 'title':
+        if (key === 'thrust' && stateAge > 0.4) startGame();
+        break;
       case 'results':
-        if (!ok) break;
+        if (key !== 'thrust') break;
         if (!tally.ready) finishTally(); else if (stateAge > 0.3) nextLevel();
         break;
       case 'paused':
-        if (ok) togglePause(); else if (key === 'left') toTitle();
+        if (key === 'thrust') togglePause();
+        else if (key === 'left') toTitle();
         break;
-      case 'gameover': case 'complete':
-        if (ok && stateAge > 0.8) afterGameOver();
+      case 'gameover':
+        if (key === 'thrust' && stateAge > 1) afterGameOver();
         break;
       case 'entry':
         if (key === 'left') entryCycle(-1);
         else if (key === 'right') entryCycle(1);
-        else if (key === 'thrust' || key === 'ok') entryConfirm();
+        else if (key === 'thrust') entryConfirm();
         break;
-      case 'board': if (ok && stateAge > 0.5) toTitle(); break;
+      case 'board':
+        if (key === 'thrust' && stateAge > 0.5) toTitle();
+        break;
     }
   }
 
   function resetShip() {
-    ship = { x: level.start[0], y: level.start[1], vx: 0, vy: 0, a: 0, fuel: 1, thrusting: false, alive: true };
+    ship = { x: level.start.x, y: level.start.y, vx: 0, vy: 0, a: 0, fuel: level.fuel, thrusting: false, alive: true };
+    cam.x = ship.x; cam.y = ship.y + 60;
   }
-  function startGame() { score = 0; lives = START_LIVES; levelNum = 1; loadLevel(); }
+  function startGame() {
+    score = 0; lives = START_LIVES; levelNum = 1;
+    loadLevel();
+  }
   function loadLevel() {
-    level = buildLevel(levelNum);
+    level = genLevel(levelNum);
     resetShip();
     particles = []; debris = [];
-    setState('intro');
+    setState('ready'); stateTimer = 2;
   }
-  function nextLevel() {
-    if (levelNum >= LEVELS.length) { setState('complete'); return; }
-    levelNum++; loadLevel();
-  }
-  function afterCrash() {
-    if (lives <= 0) { setState('gameover'); return; }
-    resetShip(); particles = []; debris = [];
-    setState('intro');
-  }
+  function nextLevel() { levelNum++; loadLevel(); }
   function togglePause() {
     if (state === 'flying') setState('paused');
     else if (state === 'paused') setState('flying');
   }
   function toTitle() {
-    level = buildLevel(1); resetShip(); ship.alive = false;
+    level = genLevel(1); resetShip(); ship.alive = false;
     particles = []; debris = [];
     setState('title');
     loadBoard();
   }
 
   // ---------- Simulation ----------
-  function shipPoly(pts) {
-    const c = Math.cos(ship.a), sn = Math.sin(ship.a);
-    return pts.map(([x, y]) => [ship.x + x * c - y * sn, ship.y + x * sn + y * c]);
+  function shipPoly(sx, sy, a, pts) {
+    const c = Math.cos(a), s = Math.sin(a);
+    return pts.map(([x, y]) => [sx + x * c - y * s, sy + x * s + y * c]);
   }
+
   function collide() {
-    const poly = shipPoly(HULL);
+    const poly = shipPoly(ship.x, ship.y, ship.a, HULL);
     let hit = false, onlyPad = true;
-    for (const [x, y] of poly) if (x < 0 || x > FIELD_W || y > FIELD_H) { hit = true; onlyPad = false; }
-    const bx0 = ship.x - 12, bx1 = ship.x + 12, by0 = ship.y - 12, by1 = ship.y + 12;
-    for (const sg of level.segs) {
-      if (sg.maxX < bx0 || sg.minX > bx1 || sg.maxY < by0 || sg.minY > by1) continue;
+    const bx0 = ship.x - 16, bx1 = ship.x + 16, by0 = ship.y - 16, by1 = ship.y + 16;
+    const test = (s) => {
+      if (s.maxX < bx0 || s.minX > bx1 || s.maxY < by0 || s.minY > by1) return;
       for (let i = 0; i < poly.length; i++) {
         const p = poly[i], q = poly[(i + 1) % poly.length];
-        if (segIntersect(p[0], p[1], q[0], q[1], sg.ax, sg.ay, sg.bx, sg.by)) {
-          hit = true; if (!sg.pad) onlyPad = false; break;
+        if (segIntersect(p[0], p[1], q[0], q[1], s.ax, s.ay, s.bx, s.by)) {
+          hit = true; if (!s.pad) onlyPad = false; return;
         }
+      }
+    };
+    for (const s of level.segs) test(s);
+    for (const r of level.rocks) {
+      if (Math.abs(r.x - ship.x) > r.r + 16 || Math.abs(r.y - ship.y) > r.r + 16) continue;
+      const pts = rockPoints(r);
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        test(withBounds({ ax: a[0], ay: a[1], bx: b[0], by: b[1], pad: false }));
       }
     }
     return { hit, onlyPad };
@@ -337,12 +449,35 @@
   function update(dt) {
     time += dt; stateAge += dt; frameNo++;
     updateParticles(dt);
-    if (state === 'results') { updateTally(dt); return; }
-    if (state === 'entry') { updateEntryRepeat(dt); return; }
-    if (state === 'board' && stateAge > 15) { toTitle(); return; }
-    if (state !== 'flying') return;
+    if (level && state !== 'paused') for (const r of level.rocks) r.a += r.spin * dt;
 
-    const burn = 1 / level.fuel;   // tank fraction per second of thrust
+    switch (state) {
+      case 'title': attractCamera(); return;
+      case 'ready':
+        stateTimer -= dt;
+        if (stateTimer <= 0) setState('flying');
+        updateCamera(dt);
+        return;
+      case 'crashed':
+        stateTimer -= dt;
+        if (stateTimer <= 0) {
+          if (lives <= 0) { setState('gameover'); stateTimer = 3; }
+          else { resetShip(); particles = []; debris = []; setState('ready'); stateTimer = 1.5; }
+        }
+        return;
+      case 'results': updateTally(dt); updateCamera(dt); return;
+      case 'gameover':
+        stateTimer -= dt;
+        if (stateTimer <= 0) afterGameOver();
+        return;
+      case 'entry': updateEntryRepeat(dt); return;
+      case 'board':
+        if (stateAge > 12) toTitle();
+        return;
+      case 'flying': break;
+      default: return;
+    }
+
     const steps = 4, h = dt / steps;
     for (let i = 0; i < steps; i++) {
       if (input.left) ship.a -= ROT_SPEED * h;
@@ -353,47 +488,67 @@
       if (ship.thrusting) {
         ax += Math.sin(ship.a) * THRUST;
         ay -= Math.cos(ship.a) * THRUST;
-        ship.fuel = Math.max(0, ship.fuel - burn * h);
+        ship.fuel = Math.max(0, ship.fuel - BURN_RATE * h);
       }
       ship.vx += ax * h; ship.vy += ay * h;
       ship.x += ship.vx * h; ship.y += ship.vy * h;
-      if (ship.y < 12) { ship.y = 12; ship.vy = Math.max(ship.vy, 0); }
+
+      if (ship.y < level.top + 300) { ship.y = level.top + 300; ship.vy = Math.max(ship.vy, 0); }
+      if (ship.x < -200 || ship.x > WORLD_W + 200) { crash(); return; }
 
       const c = collide();
       if (c.hit) {
-        const feet = shipPoly(FEET);
+        const feet = shipPoly(ship.x, ship.y, ship.a, FEET);
         const p = level.pad;
-        const feetOnPad = feet.every(([x]) => x >= p.x1 - 1 && x <= p.x2 + 1);
+        const feetOnPad = feet.every(([fx]) => fx >= p.x1 - 1 && fx <= p.x2 + 1);
         const upright = Math.abs(ship.a) <= SAFE_ANGLE;
         const slow = ship.vy <= SAFE_VY && Math.abs(ship.vx) <= SAFE_VX;
-        if (c.onlyPad && feetOnPad && upright && slow) land(); else crash();
+        if (c.onlyPad && feetOnPad && upright && slow) land();
+        else crash();
         return;
       }
     }
     setThrustSound(ship.thrusting);
+    updateBeat(dt);
+    updateCamera(dt);
+  }
+
+  function updateCamera(dt) {
+    if (!ship) return;
+    const viewW = W / scale;
+    const tx = viewW >= WORLD_W + 40 ? WORLD_W / 2 : clamp(ship.x, viewW / 2 - 20, WORLD_W - viewW / 2 + 20);
+    const lookAhead = clamp(ship.vy * 0.6, -60, 90);
+    const ty = ship.y + 40 + lookAhead;
+    const k = 1 - Math.exp(-dt * 4);
+    cam.x = lerp(cam.x, tx, k); cam.y = lerp(cam.y, ty, k);
+  }
+  function attractCamera() {
+    const t = performance.now();
+    cam.y = Math.sin(t / 4000) * 80 + 250; cam.x = WORLD_W / 2 + Math.sin(t / 6000) * 150;
   }
 
   function updateParticles(dt) {
-    for (const p of particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += GRAVITY * 0.5 * dt; }
+    for (const p of particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; }
     particles = particles.filter((p) => p.life > 0);
-    for (const d of debris) { d.x += d.vx * dt; d.y += d.vy * dt; d.vy += GRAVITY * 0.6 * dt; d.a += d.va * dt; }
+    for (const d of debris) { d.x += d.vx * dt; d.y += d.vy * dt; d.a += d.va * dt; d.life -= dt; }
+    debris = debris.filter((d) => d.life > 0);
   }
 
   function crash() {
     ship.alive = false; ship.thrusting = false;
-    bang();
+    bang(1.4, 0.8);
     lives--;
-    setState('crashed');
-    for (let i = 0; i < 30; i++) {
-      const a = Math.random() * Math.PI * 2, sp = 20 + Math.random() * 80;
-      particles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.4 + Math.random() * 0.9 });
+    setState('crashed'); stateTimer = 2.8;
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 30 + Math.random() * 110;
+      particles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * sp + ship.vx * 0.2, vy: Math.sin(a) * sp + ship.vy * 0.2, life: 0.5 + Math.random() * 1.1 });
     }
-    const pts = shipPoly(HULL);
-    for (let i = 0; i < 3; i++) {
-      const p = pts[i], q = pts[(i + 1) % 3];
+    // the ship's outline breaks apart and drifts, just like the arcade original
+    const pts = shipPoly(ship.x, ship.y, ship.a, [[0, -12], [8, 10], [-8, 10], [-6, 6], [6, 6]]);
+    for (const [i, j] of [[0, 1], [0, 2], [3, 4]]) {
+      const p = pts[i], q = pts[j];
       const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
-      debris.push({ x: mx, y: my, len: Math.hypot(q[0] - p[0], q[1] - p[1]), a: Math.atan2(q[1] - p[1], q[0] - p[0]),
-        va: (Math.random() - 0.5) * 6, vx: (mx - ship.x) * 4 + ship.vx * 0.2, vy: (my - ship.y) * 4 - 25 });
+      debris.push({ x: mx, y: my, len: Math.hypot(q[0] - p[0], q[1] - p[1]), a: Math.atan2(q[1] - p[1], q[0] - p[0]), va: (Math.random() - 0.5) * 3, vx: (mx - ship.x) * 2.5 + (Math.random() - 0.5) * 20, vy: (my - ship.y) * 2.5 + (Math.random() - 0.5) * 20, life: 2.6 });
     }
   }
 
@@ -403,25 +558,26 @@
     const p = level.pad;
     ship.y = p.y - FOOT_Y;
     ship.thrusting = false;
-    const fuelPct = Math.round(ship.fuel * 100);
-    const fuelBonus = Math.round(ship.fuel * level.bonus);
+
+    const fuelLeft = Math.floor(ship.fuel);
+    const fuelBonus = fuelLeft * FUEL_BONUS_PER_UNIT;
     const speedBonus = Math.round(MAX_SPEED_BONUS * clamp(1 - speed / Math.hypot(SAFE_VX, SAFE_VY), 0, 1));
-    const half = (p.x2 - p.x1) / 2 - 7;
-    const accuracyBonus = Math.round(MAX_ACCURACY_BONUS * clamp(1 - Math.abs(ship.x - (p.x1 + p.x2) / 2) / Math.max(half, 1), 0, 1));
+    const padC = (p.x1 + p.x2) / 2, half = (p.x2 - p.x1) / 2 - 8;
+    const accuracyBonus = Math.round(MAX_ACCURACY_BONUS * clamp(1 - Math.abs(ship.x - padC) / Math.max(half, 1), 0, 1));
     ship.vx = ship.vy = 0; ship.a = 0;
     tally = {
       rows: [
-        { label: 'Fuel remaining', value: fuelPct, suffix: '%', add: false },
-        { label: 'Fuel bonus', value: fuelBonus, add: true },
-        { label: 'Landing speed bonus', value: speedBonus, add: true },
-        { label: 'Landing accuracy bonus', value: accuracyBonus, add: true },
-        { label: 'Total', value: fuelBonus + speedBonus + accuracyBonus, add: false },
+        { label: 'FUEL REMAINING', value: fuelLeft, add: false },
+        { label: 'FUEL BONUS', value: fuelBonus, add: true },
+        { label: 'LANDING SPEED BONUS', value: speedBonus, add: true },
+        { label: 'LANDING ACCURACY BONUS', value: accuracyBonus, add: true },
+        { label: 'TOTAL', value: fuelBonus + speedBonus + accuracyBonus, add: false },
       ],
-      i: -1, t: 0, pause: 0.5, ready: false, tick: 0,
+      i: -1, t: 0, pause: 0.6, ready: false, tick: 0,
     };
     for (const r of tally.rows) { r.shown = 0; r.visible = false; r.done = false; }
     setState('results');
-    beep(784, 0.1, 'square', 0.05); beep(1047, 0.1, 'square', 0.05, 0.12); beep(1568, 0.22, 'square', 0.05, 0.24);
+    beep(880, 0.08, 'square', 0.06); beep(1175, 0.08, 'square', 0.06, 0.1); beep(1760, 0.18, 'square', 0.06, 0.2);
   }
 
   // ---------- Results tally ----------
@@ -432,19 +588,19 @@
       tally.i++;
       if (tally.i >= tally.rows.length) { tally.ready = true; return; }
       const r = tally.rows[tally.i];
-      r.visible = true; r.dur = Math.min(1, 0.25 + r.value / 20000); tally.t = 0;
+      r.visible = true; r.dur = Math.min(0.9, 0.25 + r.value / 3000); tally.t = 0;
     }
     const r = tally.rows[tally.i];
     tally.t += dt;
     const k = clamp(tally.t / r.dur, 0, 1);
     r.shown = Math.round(r.value * k);
     tally.tick -= dt;
-    if (tally.tick <= 0 && k < 1) { beep(1300 + k * 600, 0.025, 'square', 0.025); tally.tick = 0.05; }
+    if (tally.tick <= 0 && k < 1) { beep(1400 + k * 500, 0.025, 'square', 0.03); tally.tick = 0.05; }
     if (k >= 1) {
       r.done = true;
       if (r.add) score += r.value;
-      beep(520, 0.07, 'triangle', 0.07);
-      tally.pause = 0.3;
+      beep(440, 0.07, 'square', 0.06);
+      tally.pause = 0.28;
     }
   }
   function finishTally() {
@@ -465,11 +621,10 @@
   }
   function qualifies() {
     if (score <= 0) return false;
-    if (!boardLoaded) return true;
     return board.length < 10 || score > Number(board[board.length - 1].score);
   }
   function afterGameOver() {
-    if (qualifies()) {
+    if (qualifies() || (!boardLoaded && score > 0)) {
       let saved = '';
       try { saved = localStorage.getItem('astrolander-initials') || ''; } catch (_) {}
       entry = { letters: ['A', '_', '_'], idx: 0, hold: 0, repeat: 0, done: false };
@@ -496,7 +651,11 @@
       if (entry.repeat <= 0) { entryCycle(dir); entry.repeat = 0.11; }
     }
   }
-  function entryType(ch) { if (!entry.done) { entry.letters[entry.idx] = ch; entryConfirm(); } }
+  function entryType(ch) {
+    if (entry.done) return;
+    entry.letters[entry.idx] = ch;
+    entryConfirm();
+  }
   function entryBack() {
     if (entry.done || entry.idx === 0) return;
     entry.letters[entry.idx] = '_';
@@ -504,10 +663,10 @@
   }
   function entryConfirm() {
     if (entry.done) return;
-    beep(660, 0.06, 'square', 0.05);
+    beep(660, 0.06, 'square', 0.06);
     if (entry.idx < 2) {
       entry.idx++;
-      if (entry.letters[entry.idx] === '_') entry.letters[entry.idx] = 'A';
+      entry.letters[entry.idx] = entry.letters[entry.idx] === '_' ? 'A' : entry.letters[entry.idx];
       return;
     }
     entry.done = true;
@@ -526,204 +685,301 @@
       if (!res.ok) throw new Error(data.error || 'Failed');
       board = data.scores; boardLoaded = true; highlightId = data.id;
     } catch (_) {
-      flash = 'Score not saved';
+      flash = 'SCORE NOT SAVED';
       highlightId = null;
     }
     setState('board');
   }
 
-  // ---------- Rendering ----------
-  const blink = (hz = 2) => Math.sin(time * Math.PI * 2 * hz) > -0.3;
-  function font(px, bold = false) { return `${bold ? 'bold ' : ''}${Math.round(px)}px ${FONT}`; }
-  function text(str, x, y, px, color = COLORS.text, align = 'left', bold = false) {
-    ctx.font = font(px, bold); ctx.fillStyle = color;
-    ctx.textAlign = align; ctx.textBaseline = 'middle';
-    ctx.fillText(str, x, y);
+  // ---------- Rendering primitives ----------
+  function glow(lw, alpha = 1) {
+    ctx.globalAlpha = alpha * 0.22; ctx.lineWidth = lw * 3.2; ctx.stroke();
+    ctx.globalAlpha = alpha; ctx.lineWidth = lw; ctx.stroke();
+    ctx.globalAlpha = 1;
   }
-  function screen() { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
-  function field() { ctx.setTransform(DPR * s, 0, 0, DPR * s, DPR * fx, DPR * fy); }
-  function strokePath(pts, closed, color, px = 1.4) {
+  function vtext(str, x, y, size, align = 'left', alpha = 1) {
+    str = String(str).toUpperCase();
+    const u = size / 6;
+    const w = str.length * size - 2 * u;
+    let ox = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
     ctx.beginPath();
+    for (const ch of str) {
+      for (const stroke of FONT[ch] || []) {
+        stroke.forEach(([px, py], i) => {
+          const X = ox + px * u, Y = y + py * u;
+          if (i === 0) ctx.moveTo(X, Y); else ctx.lineTo(X, Y);
+        });
+      }
+      ox += size;
+    }
+    glow(Math.max(1.1, size / 9), alpha);
+  }
+  function screenSpace() { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); }
+  function applyCam() {
+    ctx.setTransform(DPR * scale, 0, 0, DPR * scale, DPR * (W / 2 - cam.x * scale), DPR * (H * 0.45 - cam.y * scale));
+  }
+  function worldToScreen(x, y) {
+    return [(x - cam.x) * scale + W / 2, (y - cam.y) * scale + H * 0.45];
+  }
+  function polyPath(pts, closed) {
     ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
     if (closed) ctx.closePath();
-    ctx.strokeStyle = color; ctx.lineWidth = px / s; ctx.stroke();
   }
 
-  function drawShipLines(x, y, a, k, color, px, flame) {
-    const c = Math.cos(a), sn = Math.sin(a);
-    const T = ([lx, ly]) => [x + (lx * c - ly * sn) * k, y + (lx * sn + ly * c) * k];
+  // ---------- World rendering ----------
+  function drawTerrain() {
+    applyCam();
+    const { left, right, floor, padIndex, rocks, pad } = level;
+    const lw = 1.3 / scale;
     ctx.beginPath();
-    const pts = HULL.map(T);
-    ctx.moveTo(pts[0][0], pts[0][1]); ctx.lineTo(pts[1][0], pts[1][1]); ctx.lineTo(pts[2][0], pts[2][1]); ctx.closePath();
-    const b1 = T([-3, 3]), b2 = T([3, 3]);
-    ctx.moveTo(b1[0], b1[1]); ctx.lineTo(b2[0], b2[1]);
-    ctx.strokeStyle = color; ctx.lineWidth = px; ctx.lineJoin = 'round'; ctx.stroke();
-    if (flame) {
-      const f1 = T([-3, 9]), f2 = T([0, 15 + Math.random() * 6]), f3 = T([3, 9]);
-      ctx.beginPath(); ctx.moveTo(f1[0], f1[1]); ctx.lineTo(f2[0], f2[1]); ctx.lineTo(f3[0], f3[1]);
-      ctx.strokeStyle = COLORS.flame; ctx.stroke();
+    polyPath(left); polyPath(right);
+    polyPath(floor.slice(0, padIndex + 1));
+    polyPath(floor.slice(padIndex + 1));
+    glow(lw, 0.8);
+
+    ctx.beginPath();
+    for (const r of rocks) polyPath(rockPoints(r), true);
+    glow(lw, 0.9);
+
+    // landing pad: a brighter, thicker double line with blinking end markers
+    const bright = 0.75 + 0.25 * Math.sin(time * 6);
+    ctx.beginPath();
+    ctx.moveTo(pad.x1, pad.y); ctx.lineTo(pad.x2, pad.y);
+    ctx.moveTo(pad.x1 + 4, pad.y + 4); ctx.lineTo(pad.x2 - 4, pad.y + 4);
+    glow(2.4 / scale, bright);
+    if (Math.sin(time * 6) > 0) {
+      ctx.beginPath();
+      ctx.moveTo(pad.x1, pad.y - 1); ctx.lineTo(pad.x1, pad.y - 9);
+      ctx.moveTo(pad.x2, pad.y - 1); ctx.lineTo(pad.x2, pad.y - 9);
+      glow(1.6 / scale, 1);
     }
   }
 
-  function drawField() {
-    // frame
-    screen();
-    ctx.strokeStyle = COLORS.frame; ctx.lineWidth = 1.2;
-    ctx.strokeRect(fx + 0.5, fy + 0.5, fw, fh);
-    if (!level) return;
-
-    field();
-    ctx.save();
-    ctx.beginPath(); ctx.rect(0, 0, FIELD_W, FIELD_H); ctx.clip();
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const g of level.ground) strokePath(g, false, COLORS.terrain);
-    for (const r of level.rocks) strokePath(r, true, COLORS.terrain);
-    // landing pad: a hollow white box sitting in the ground
-    const p = level.pad;
-    ctx.strokeStyle = COLORS.pad; ctx.lineWidth = 1.3 / s;
-    ctx.strokeRect(p.x1, p.y, p.x2 - p.x1, 7);
-
-    if (ship && ship.alive) drawShipLines(ship.x, ship.y, ship.a, 1, COLORS.ship, 1.5 / s, ship.thrusting && frameNo % 3 !== 0);
-    for (const d of debris) {
-      const dx = Math.cos(d.a) * d.len / 2, dy = Math.sin(d.a) * d.len / 2;
-      ctx.beginPath(); ctx.moveTo(d.x - dx, d.y - dy); ctx.lineTo(d.x + dx, d.y + dy);
-      ctx.strokeStyle = COLORS.ship; ctx.lineWidth = 1.5 / s; ctx.stroke();
+  function drawShipAt(x, y, a, sc, alpha = 1, flame = false) {
+    const c = Math.cos(a), s = Math.sin(a);
+    const T = (px, py) => [x + (px * c - py * s) * sc, y + (px * s + py * c) * sc];
+    ctx.beginPath();
+    const n = T(0, -12), l = T(-8, 10), r = T(8, 10), bl = T(-6, 6), br = T(6, 6);
+    ctx.moveTo(l[0], l[1]); ctx.lineTo(n[0], n[1]); ctx.lineTo(r[0], r[1]);
+    ctx.moveTo(bl[0], bl[1]); ctx.lineTo(br[0], br[1]);
+    if (flame) {
+      const f1 = T(-3.5, 6), f2 = T(0, 13 + Math.random() * 5), f3 = T(3.5, 6);
+      ctx.moveTo(f1[0], f1[1]); ctx.lineTo(f2[0], f2[1]); ctx.lineTo(f3[0], f3[1]);
     }
-    for (const q of particles) {
-      ctx.globalAlpha = clamp(q.life, 0, 1);
-      ctx.fillStyle = Math.random() < 0.5 ? COLORS.flame : COLORS.ship;
-      ctx.fillRect(q.x - 1, q.y - 1, 2, 2);
+    glow(1.5 * (sc < 1 ? 1 : 1 / scale), alpha);
+  }
+
+  function drawWorld() {
+    drawTerrain();
+    applyCam();
+    if (ship && ship.alive) drawShipAt(ship.x, ship.y, ship.a, 1, 1, ship.thrusting && frameNo % 2 === 0);
+    for (const p of particles) {
+      ctx.globalAlpha = clamp(p.life, 0, 1);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
     }
     ctx.globalAlpha = 1;
-    ctx.restore();
+    ctx.beginPath();
+    for (const d of debris) {
+      const dx = Math.cos(d.a) * d.len / 2, dy = Math.sin(d.a) * d.len / 2;
+      ctx.moveTo(d.x - dx, d.y - dy); ctx.lineTo(d.x + dx, d.y + dy);
+    }
+    glow(1.5 / scale, debris.length ? clamp(debris[0].life, 0, 1) : 1);
   }
+
+  // ---------- HUD & screens ----------
+  const blink = (hz = 2) => Math.sin(time * Math.PI * 2 * hz) > -0.2;
+  const topScore = () => Math.max(score, board.length ? Number(board[0].score) : 0);
 
   function drawHUD() {
-    screen();
-    const ts = clamp(fw * 0.034, 13, 22);
-    // score (cyan, top-left above the frame) and title (centred above the frame)
-    text(String(Math.min(score, 999999)).padStart(6, '0'), fx + 2, fy - ts * 0.85, ts, COLORS.score, 'left', true);
-    text('AstroLander', W / 2, fy - ts * 0.85, ts, COLORS.text);
-    if (!ship || state === 'title' || state === 'board' || state === 'entry') return;
-    // fuel bar (top-left inside the frame)
-    const bx = fx + fw * 0.018, by = fy + fh * 0.025, bw = fw * 0.16, bh = Math.max(5, fh * 0.022);
-    ctx.fillStyle = COLORS.fuel;
-    const fuelVisible = ship.fuel > 0.2 || blink(3) || state !== 'flying';
-    if (fuelVisible) ctx.fillRect(bx, by, bw * ship.fuel, bh);
-    ctx.strokeStyle = COLORS.fuelEdge; ctx.lineWidth = 1; ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
-    // lives (blue ships, top-right inside the frame)
-    const ls = clamp(fw / 600, 0.6, 1.2);
-    for (let i = 0; i < Math.max(0, lives); i++) {
-      drawShipLines(fx + fw - 12 * ls - i * 15 * ls, fy + fh * 0.025 + 9 * ls, 0, 0.7 * ls, COLORS.ship, 1.2, false);
+    screenSpace();
+    const small = W < 480;
+    const fs = small ? 10 : 12;
+    // score & lives (top-left), high score (top-centre)
+    vtext(String(score).padStart(2, '0'), 16, 16, small ? 20 : 26);
+    for (let i = 0; i < Math.max(0, lives); i++) drawShipAt(24 + i * 18, (small ? 58 : 66), 0, 0.75, 0.9);
+    vtext('LEVEL ' + levelNum, 16, small ? 78 : 88, fs - 1, 'left', 0.8);
+    vtext(String(topScore()).padStart(2, '0'), W / 2, 16, fs, 'center', 0.8);
+
+    if (!ship) return;
+    // fuel gauge (top-right)
+    const gw = small ? 104 : 160, gx = W - gw - 16, gy = 16;
+    vtext('FUEL', gx, gy, fs - 2, 'left', 0.8);
+    const frac = clamp(ship.fuel / level.fuel, 0, 1);
+    ctx.beginPath(); ctx.rect(gx, gy + fs + 4, gw, 12); glow(1.1, 0.8);
+    if (frac > 0.2 || blink(3)) {
+      ctx.beginPath();
+      const fw = (gw - 6) * frac;
+      for (let x = 0; x < fw; x += 3) { ctx.moveTo(gx + 3 + x, gy + fs + 7); ctx.lineTo(gx + 3 + x, gy + fs + 13); }
+      glow(1, 0.85);
+    }
+    vtext(String(Math.floor(ship.fuel)), W - 16, gy + fs + 24, fs, 'right');
+
+    // flight data: unsafe values blink
+    const vx = ship.vx / SPEED_UNIT, vy = ship.vy / SPEED_UNIT;
+    const okX = Math.abs(ship.vx) <= SAFE_VX, okY = ship.vy <= SAFE_VY, okA = Math.abs(ship.a) <= SAFE_ANGLE;
+    const alt = Math.max(0, (level.pad.y - (ship.y + FOOT_Y)) / SPEED_UNIT);
+    const y0 = gy + fs * 2 + 40, lh = fs + 9;
+    const line = (label, val, ok, i) => vtext(label + ' ' + val, W - 16, y0 + lh * i, fs, 'right', ok ? 0.9 : (blink(4) ? 1 : 0.25));
+    line('H SPEED', Math.abs(vx).toFixed(0).padStart(3, ' ') + ' ' + (vx > 0.05 ? '→' : vx < -0.05 ? '←' : ' '), okX, 0);
+    line('V SPEED', Math.abs(vy).toFixed(0).padStart(3, ' ') + ' ' + (vy > 0.05 ? '↓' : vy < -0.05 ? '↑' : ' '), okY, 1);
+    line('ANGLE', String(Math.round(Math.abs(ship.a) * 180 / Math.PI)).padStart(3, ' ') + '°', okA, 2);
+    line('ALTITUDE', alt.toFixed(0).padStart(4, ' '), true, 3);
+
+    // off-screen pad pointer
+    const p = level.pad;
+    const [sx, sy] = worldToScreen((p.x1 + p.x2) / 2, p.y);
+    const m = 40;
+    if (ship.alive && (sx < m || sx > W - m || sy < m || sy > H - 160)) {
+      const cx = W / 2, cy = H * 0.45;
+      const ang = Math.atan2(sy - cy, sx - cx);
+      const r = Math.min(W, H) * 0.34;
+      const ax = clamp(cx + Math.cos(ang) * r, m, W - m);
+      const ay = clamp(cy + Math.sin(ang) * r, m + 70, H - 170);
+      const c = Math.cos(ang), s = Math.sin(ang);
+      const T = (x, y) => [ax + x * c - y * s, ay + x * s + y * c];
+      ctx.beginPath(); polyPath([T(12, 0), T(-6, -7), T(-2, 0), T(-6, 7)], true);
+      glow(1.2, 0.5 + 0.4 * Math.sin(time * 5));
     }
   }
 
-  // Centred dialog box like the original's "CRASH! / OK"
-  function dialog(lines, opts = {}) {
-    screen();
-    const base = clamp(fw * 0.036, 12, 20);
-    const lh = base * 1.65;
-    ctx.font = font(base);
-    let w = 0;
-    for (const l of lines) {
-      ctx.font = font(l.size || base, l.bold);
-      const lw = l.right != null ? ctx.measureText(l.text).width + ctx.measureText(String(l.right)).width + base * 3 : ctx.measureText(l.text).width;
-      w = Math.max(w, lw);
+  function drawCenter(lines, yStart, size, gap = 1.9) {
+    lines.forEach((l, i) => { if (l) vtext(l, W / 2, yStart + i * size * gap, size, 'center'); });
+  }
+  const fitSize = (chars, max) => Math.min(max, (W - 32) / chars);
+
+  function drawTitle() {
+    screenSpace();
+    const page = Math.floor(stateAge / 7) % 2;
+    if (page === 0 || !board.length) {
+      const big = fitSize(11, 48);
+      vtext('ASTROLANDER', W / 2, H * 0.17, big, 'center');
+      const s = fitSize(32, 13);
+      drawCenter([
+        'PILOT YOUR SHIP DOWN THE CAVERN',
+        'AND LAND ON THE PAD',
+        '',
+        'ROTATE   < >',
+        'THRUST   FIRE ENGINE',
+        '',
+        'LAND SLOWLY, UPRIGHT AND CENTERED',
+        'BONUS FOR FUEL, SPEED AND ACCURACY',
+      ], H * 0.17 + big * 2.2, s, 2.1);
+    } else {
+      drawBoard(H * 0.12, null);
     }
-    w = Math.max(w + base * 2.4, opts.minW || base * 8);
-    const hgt = lines.reduce((a, l) => a + (l.gap || 0) + (l.size ? l.size * 1.65 : lh), 0) + base * 1.2;
-    const x = W / 2 - w / 2, y = fy + fh / 2 - hgt / 2;
-    ctx.fillStyle = '#000'; ctx.fillRect(x, y, w, hgt);
-    ctx.strokeStyle = COLORS.text; ctx.lineWidth = 1.3; ctx.strokeRect(x + 0.5, y + 0.5, w, hgt);
-    let cy = y + base * 0.6;
-    for (const l of lines) {
-      cy += l.gap || 0;
-      const h = l.size ? l.size * 1.65 : lh;
-      const col = l.color || COLORS.text;
-      if (l.visible === false) { cy += h; continue; }
-      if (l.right != null) {
-        text(l.text, x + base * 1.2, cy + h / 2, l.size || base, col, 'left', l.bold);
-        text(String(l.right), x + w - base * 1.2, cy + h / 2, l.size || base, col, 'right', l.bold);
-      } else {
-        text(l.text, W / 2, cy + h / 2, l.size || base, col, 'center', l.bold);
-      }
-      cy += h;
-    }
+    if (blink(1)) vtext('PUSH THRUST TO START', W / 2, H - 200, fitSize(20, 14), 'center');
   }
 
-  function boardLines(hl) {
-    if (!board.length) return [{ text: boardLoaded ? 'No scores yet' : 'Loading…' }];
-    return board.slice(0, 10).map((r, i) => ({
-      text: `${i + 1}.  ${String(r.name).slice(0, 3)}`, right: String(r.score).padStart(6, '0'),
-      color: hl && r.id === hl ? (blink(3) ? COLORS.score : COLORS.text) : COLORS.text,
-    }));
+  function drawBoard(y, hl) {
+    const s = fitSize(16, 15);
+    vtext('HIGH SCORES', W / 2, y, s * 1.3, 'center');
+    if (!board.length) {
+      vtext(boardLoaded ? 'NO SCORES YET' : 'LOADING', W / 2, y + s * 4, s, 'center', 0.8);
+      return;
+    }
+    board.slice(0, 10).forEach((r, i) => {
+      const txt = String(i + 1).padStart(2, ' ') + '. ' + String(r.score).padStart(7, ' ') + ' ' + String(r.name).slice(0, 3).padEnd(3, ' ');
+      const on = hl && r.id === hl;
+      vtext(txt, W / 2, y + s * 3.2 + i * s * 1.9, s, 'center', on ? (blink(3) ? 1 : 0.3) : 0.9);
+    });
   }
 
-  function drawDialogs() {
-    const base = clamp(fw * 0.036, 12, 20);
-    const ok = { text: 'OK', gap: base * 0.3 };
-    switch (state) {
-      case 'title': {
-        const showScores = board.length && Math.floor(stateAge / 6) % 2 === 1;
-        if (showScores) dialog([{ text: 'HIGH SCORES', color: COLORS.score, bold: true }, ...boardLines(null), { text: 'Press THRUST to play', gap: base * 0.4 }], { minW: base * 14 });
-        else dialog([
-          { text: 'ASTROLANDER', color: COLORS.score, bold: true },
-          { text: 'Land on the pad with as much fuel,' , size: base * 0.8, gap: base * 0.3 },
-          { text: 'as little speed and as close to', size: base * 0.8 },
-          { text: 'the centre as you can.', size: base * 0.8 },
-          { text: '◀ ▶ rotate     THRUST fire engine', size: base * 0.8, gap: base * 0.3 },
-          { text: blink(1) ? 'Press THRUST to start' : ' ', gap: base * 0.4 },
-        ]);
-        break;
+  function drawResults() {
+    screenSpace();
+    const s = fitSize(30, 15);
+    const x0 = W / 2 - 14.5 * s, x1 = W / 2 + 14.5 * s;
+    let y = H * 0.2;
+    vtext('LANDING SUCCESSFUL', W / 2, y, s * 1.4, 'center');
+    y += s * 4.5;
+    for (const r of tally.rows) {
+      if (!r.visible) continue;
+      if (r.label === 'TOTAL') {
+        ctx.beginPath(); ctx.moveTo(x1 - s * 8, y - s * 0.9); ctx.lineTo(x1, y - s * 0.9); glow(1, 0.7);
       }
-      case 'intro':
-        dialog([{ text: `LEVEL ${levelNum}`, color: COLORS.score, bold: true }, { text: level.name }, ok]);
-        break;
-      case 'crashed':
-        dialog([{ text: 'CRASH!', color: COLORS.score }, ok]);
-        break;
-      case 'paused':
-        dialog([{ text: 'PAUSED', color: COLORS.score }, ok, { text: '◀ to quit', size: base * 0.75 }]);
-        break;
-      case 'results':
-        dialog([
-          { text: 'LANDED!', color: COLORS.score, bold: true },
-          ...tally.rows.map((r) => ({ text: r.label, right: r.shown + (r.suffix || ''), visible: r.visible, bold: r.label === 'Total', color: r.label === 'Total' ? COLORS.score : COLORS.text })),
-          { text: tally.ready ? 'OK' : ' ', gap: base * 0.3 },
-        ], { minW: base * 18 });
-        break;
-      case 'gameover':
-        dialog([{ text: 'GAME OVER', color: COLORS.score, bold: true }, { text: 'Score ' + String(score).padStart(6, '0') }, ok]);
-        break;
-      case 'complete':
-        dialog([{ text: 'ALL LEVELS COMPLETE!', color: COLORS.score, bold: true }, { text: 'Score ' + String(score).padStart(6, '0') }, ok]);
-        break;
-      case 'entry': {
-        const letters = entry.letters.map((ch, i) => (i === entry.idx && !entry.done && !blink(3) ? ' ' : ch)).join('  ');
-        dialog([
-          { text: 'NEW HIGH SCORE', color: COLORS.score, bold: true },
-          { text: 'Score ' + String(score).padStart(6, '0') },
-          { text: 'Enter your initials', size: base * 0.8, gap: base * 0.3 },
-          { text: letters, size: base * 1.8, bold: true },
-          { text: entry.done ? 'Sending…' : '◀ ▶ choose letter   THRUST select', size: base * 0.75 },
-        ], { minW: base * 16 });
-        break;
-      }
-      case 'board':
-        dialog([{ text: 'HIGH SCORES', color: COLORS.score, bold: true }, ...boardLines(highlightId),
-          ...(flash ? [{ text: flash, size: base * 0.75 }] : []), ok], { minW: base * 14 });
-        break;
+      vtext(r.label, x0, y, s);
+      vtext(String(r.shown), x1, y, s, 'right');
+      y += s * 2.4;
+    }
+    vtext('SCORE ' + score, W / 2, y + s * 1.5, s * 1.1, 'center');
+    if (tally.ready && blink(1)) vtext('PUSH THRUST TO CONTINUE', W / 2, H - 200, fitSize(23, 13), 'center');
+  }
+
+  function drawEntry() {
+    screenSpace();
+    const s = fitSize(34, 13);
+    drawCenter([
+      'YOUR SCORE IS ONE OF THE TEN BEST',
+      'PLEASE ENTER YOUR INITIALS',
+      '',
+      'PUSH ROTATE TO SELECT LETTER',
+      'PUSH THRUST WHEN LETTER IS CORRECT',
+    ], H * 0.16, s, 2.1);
+    const big = Math.min(44, W / 9);
+    const xs = W / 2 - big * 2;
+    entry.letters.forEach((ch, i) => {
+      const active = i === entry.idx && !entry.done;
+      vtext(ch, xs + i * big * 1.5, H * 0.16 + s * 14, big, 'left', active ? (blink(3) ? 1 : 0.35) : 1);
+    });
+    vtext('SCORE ' + score, W / 2, H * 0.16 + s * 14 + big * 2.2, s * 1.2, 'center', 0.85);
+    if (entry.done) vtext('TRANSMITTING', W / 2, H - 200, s, 'center', blink(3) ? 1 : 0.3);
+  }
+
+  function drawOverlayText() {
+    screenSpace();
+    const small = W < 480;
+    if (state === 'ready') {
+      vtext('LEVEL ' + levelNum, W / 2, H * 0.24, small ? 22 : 30, 'center');
+      vtext('GET READY', W / 2, H * 0.24 + (small ? 40 : 54), small ? 12 : 15, 'center', blink(2) ? 1 : 0.3);
+    } else if (state === 'crashed') {
+      vtext('CRASHED', W / 2, H * 0.24, small ? 24 : 32, 'center');
+      vtext(lives > 0 ? `${lives} SHIP${lives === 1 ? '' : 'S'} LEFT` : 'NO SHIPS LEFT', W / 2, H * 0.24 + (small ? 42 : 56), small ? 11 : 14, 'center');
+    } else if (state === 'flying' && ship.fuel <= 0) {
+      if (blink(3)) vtext('OUT OF FUEL', W / 2, H * 0.22, small ? 14 : 18, 'center');
+    } else if (state === 'paused') {
+      vtext('PAUSED', W / 2, H * 0.26, small ? 24 : 32, 'center');
+      vtext('PUSH THRUST TO RESUME', W / 2, H * 0.26 + 60, fitSize(21, 13), 'center', 0.9);
+      vtext('PUSH < TO QUIT', W / 2, H * 0.26 + 90, fitSize(21, 13), 'center', 0.9);
+    } else if (state === 'gameover') {
+      vtext('GAME OVER', W / 2, H * 0.3, small ? 28 : 40, 'center');
+      vtext('SCORE ' + score, W / 2, H * 0.3 + (small ? 50 : 70), small ? 13 : 16, 'center', 0.9);
     }
   }
 
   function render() {
-    screen();
-    ctx.fillStyle = '#000';
+    screenSpace();
+    // phosphor persistence: fade the previous frame instead of clearing it
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
     ctx.fillRect(0, 0, W, H);
-    drawField();
-    drawHUD();
-    drawDialogs();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = '#fff';
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+
+    const inMenu = state === 'title' || state === 'board' || state === 'entry';
+    if (level) drawWorld();
+    if (inMenu || state === 'results') {
+      // dim the attract-mode cavern behind menu text
+      screenSpace();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+      ctx.globalCompositeOperation = 'lighter';
+    }
+    if (state === 'title') drawTitle();
+    else if (state === 'entry') drawEntry();
+    else if (state === 'board') {
+      screenSpace();
+      drawBoard(H * 0.12, highlightId);
+      if (flash) vtext(flash, W / 2, H - 230, 12, 'center', 0.8);
+      if (stateAge > 0.5 && blink(1)) vtext('PUSH THRUST', W / 2, H - 200, 13, 'center');
+    } else {
+      drawHUD();
+      if (state === 'results') drawResults();
+      drawOverlayText();
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   // ---------- Main loop ----------
@@ -737,8 +993,7 @@
   }
 
   // exposed for automated testing
-  window.__astro = { get state() { return state; }, get ship() { return ship; }, get level() { return level; }, input, press, LEVELS, buildLevel,
-    setLevel(n) { levelNum = n; loadLevel(); } };
+  window.__astro = { get state() { return state; }, get ship() { return ship; }, get level() { return level; }, input, genLevel, press };
 
   toTitle();
   requestAnimationFrame(frame);
