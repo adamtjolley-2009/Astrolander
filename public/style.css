@@ -22,6 +22,17 @@ button { -webkit-tap-highlight-color: transparent; }
   background: transparent; border: 1px solid rgba(255,255,255,.5); cursor: pointer;
 }
 
+.music {
+  position: fixed; left: 50%; bottom: calc(22px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 4;
+  width: 38px; height: 38px; padding: 8px; border-radius: 50%; cursor: pointer;
+  background: transparent; border: 1px solid rgba(255,255,255,.5);
+}
+.music .slash { display: none; }
+.music.muted { opacity: .55; }
+.music.muted .slash { display: inline; }
+/* narrow phones: lift it clear of the rotate and thrust buttons */
+@media (max-width: 400px) { .music { bottom: calc(136px + env(safe-area-inset-bottom)); } }
+
 #controls {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 3;
   display: flex; justify-content: space-between; align-items: flex-end;

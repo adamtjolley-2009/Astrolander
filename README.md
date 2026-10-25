@@ -9,6 +9,7 @@ A browser tribute to the **Astrolander** minigame from *TimeSplitters 2*. Pilot 
 | Rotate right | ▶ | → / D |
 | Throttle | THRUST | ↑ / W / Space |
 | Pause | II | Esc / P |
+| Mute music | ♫ | M |
 
 ## Scoring (per landing)
 - **Fuel remaining**: units left in the tank

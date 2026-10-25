@@ -254,6 +254,13 @@
   const music = new Audio('astrolander.mp3');
   music.loop = true; music.volume = 0.35;
   let musicOn = false;
+  try { music.muted = localStorage.getItem('astrolander-music-muted') === '1'; } catch (_) {}
+  function toggleMusicMute() {
+    music.muted = !music.muted;
+    try { localStorage.setItem('astrolander-music-muted', music.muted ? '1' : '0'); } catch (_) {}
+    $('musicBtn').classList.toggle('muted', music.muted);
+    $('musicBtn').setAttribute('aria-pressed', String(music.muted));
+  }
   function playMusic() {
     if (musicOn && music.paused && state !== 'paused' && !document.hidden) music.play().catch(() => {});
   }
@@ -290,7 +297,7 @@
   }
   function setThrustSound(on) {
     if (!thrustGain) return;
-    thrustGain.gain.setTargetAtTime(on ? 0.35 : 0, actx.currentTime, 0.03);
+    thrustGain.gain.setTargetAtTime(on ? 0.48 : 0, actx.currentTime, 0.03);
   }
   // ---------- Retro synth (every sound except the thruster) ----------
   // NES-style pulse waves with a chosen duty cycle (0.5 = square, 0.25 / 0.125 = thinner)
@@ -303,20 +310,34 @@
     }
     return pulseWaves[duty];
   }
+  let driveCurveCache = null;
+  function driveCurve() {
+    if (!driveCurveCache) {
+      const n = 1024; driveCurveCache = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; driveCurveCache[i] = Math.tanh(2.5 * x) / Math.tanh(2.5); }
+    }
+    return driveCurveCache;
+  }
   // one synth note: pulse duty (number) or oscillator type (string), optional pitch slide,
   // detuned unison, resonant filter sweep, vibrato and echo send
-  function tone({ freq, to = freq, dur, when = 0, vol = 0.06, wave = 0.5, attack = 0.004, detune = 0, cutoff = 0, vibrato = 0, echo = false }) {
+  function tone({ freq, to = freq, dur, when = 0, vol = 0.06, wave = 0.5, attack = 0.004, detune = 0, cutoff = 0, q = 7, vibrato = 0, drive = 0, echo = false }) {
     if (!actx) return;
     const t = actx.currentTime + when;
     const g = actx.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(vol, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    g.connect(sfxOut);
+    if (drive) {
+      // overdrive: boost into a soft clipper, then scale back so only the edge changes, not the level
+      const pre = actx.createGain(), post = actx.createGain(), clip = actx.createWaveShaper();
+      pre.gain.value = drive; post.gain.value = 1 / drive;
+      clip.curve = driveCurve(); clip.oversample = '4x';
+      g.connect(pre).connect(clip).connect(post).connect(sfxOut);
+    } else g.connect(sfxOut);
     if (echo) g.connect(echoIn);
     let head = g;
     if (cutoff) {
-      const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 7;
+      const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = q;
       f.frequency.setValueAtTime(cutoff, t);
       f.frequency.exponentialRampToValueAtTime(Math.max(90, to * 1.5), t + dur);
       f.connect(g); head = f;
@@ -352,19 +373,20 @@
     tone({ freq: 520, to: 40, dur: 0.6, wave: 0.25, vol: vol * 0.12 });
   }
   // short UI sounds
+  // the UI sounds use thin pulse waves and light overdrive for a grittier edge
   const sfx = {
-    landed() { // 8-bit victory arpeggio ending on a vibrato chord
-      [523.25, 659.25, 783.99].forEach((f, i) => tone({ freq: f, dur: 0.09, when: i * 0.075, wave: 0.25, vol: 0.06 }));
-      tone({ freq: 1046.5, dur: 0.55, when: 0.225, wave: 0.25, vol: 0.06, vibrato: 0.012, echo: true });
-      tone({ freq: 1318.5, dur: 0.55, when: 0.225, wave: 0.5, vol: 0.035, vibrato: 0.012, echo: true });
+    landed() { // 8-bit victory arpeggio with octave jumps, ending on a vibrato chord
+      [523.25, 1046.5, 659.25, 1318.5, 783.99].forEach((f, i) => tone({ freq: f, dur: 0.07, when: i * 0.055, wave: 0.125, vol: 0.055, drive: 7 }));
+      tone({ freq: 1046.5, dur: 0.55, when: 0.275, wave: 0.125, vol: 0.055, vibrato: 0.015, drive: 7, echo: true });
+      tone({ freq: 1318.5, dur: 0.55, when: 0.275, wave: 0.25, vol: 0.035, vibrato: 0.015, drive: 7, echo: true });
     },
     coin() { // classic two-note coin pickup
-      tone({ freq: 987.77, dur: 0.07, wave: 0.5, vol: 0.05 });
-      tone({ freq: 1318.5, dur: 0.28, when: 0.07, wave: 0.5, vol: 0.05 });
+      tone({ freq: 987.77, dur: 0.07, wave: 0.25, vol: 0.05, drive: 6 });
+      tone({ freq: 1318.5, dur: 0.28, when: 0.07, wave: 0.25, vol: 0.05, drive: 6 });
     },
-    select() { tone({ freq: 880, dur: 0.035, wave: 0.25, vol: 0.04 }); },
-    confirm() { // 80s synth chirp: detuned saws sweeping up through a resonant filter
-      tone({ freq: 523.25, to: 1046.5, dur: 0.14, wave: 'sawtooth', detune: 12, cutoff: 3200, vol: 0.06, echo: true });
+    select() { tone({ freq: 900, to: 720, dur: 0.04, wave: 0.125, vol: 0.045, drive: 6 }); },
+    confirm() { // 80s synth chirp: detuned saws screaming up through a resonant filter
+      tone({ freq: 523.25, to: 1046.5, dur: 0.15, wave: 'sawtooth', detune: 14, cutoff: 4800, q: 13, vol: 0.06, drive: 6, echo: true });
     },
   };
   // the famous two-note heartbeat, quickening as fuel runs down
@@ -375,8 +397,8 @@
     const frac = clamp(ship.fuel / level.fuel, 0, 1);
     beatTimer = lerp(0.28, 1.0, frac);
     beatHigh = !beatHigh;
-    // 80s analog bass pluck: two detuned saws through a closing resonant filter
-    tone({ freq: beatHigh ? 62 : 55, dur: 0.2, wave: 'sawtooth', detune: 9, cutoff: 1600, vol: 0.2 });
+    // 80s analog bass pluck: two detuned saws through a snappy resonant filter, lightly overdriven
+    tone({ freq: beatHigh ? 62 : 55, dur: 0.2, wave: 'sawtooth', detune: 11, cutoff: 2600, q: 12, vol: 0.2, drive: 4 });
   }
 
   // ---------- Input ----------
@@ -390,6 +412,7 @@
     }
     if (e.code === 'Enter' && !e.repeat) { press('thrust'); e.preventDefault(); return; }
     if ((e.code === 'Escape' || e.code === 'KeyP') && !e.repeat) { togglePause(); return; }
+    if (e.code === 'KeyM' && !e.repeat) { toggleMusicMute(); return; }
     const k = keyMap[e.code];
     if (!k) return;
     e.preventDefault();
@@ -420,6 +443,9 @@
   bindHold($('btnRight'), 'right');
   bindHold($('btnThrust'), 'thrust');
   $('pauseBtn').addEventListener('click', () => togglePause());
+  $('musicBtn').addEventListener('click', () => { initAudio(); toggleMusicMute(); });
+  $('musicBtn').classList.toggle('muted', music.muted);
+  $('musicBtn').setAttribute('aria-pressed', String(music.muted));
 
   // ---------- Game state ----------
   // title | ready | flying | paused | crashed | results | gameover | entry | board
