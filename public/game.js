@@ -249,7 +249,7 @@
   }
 
   // ---------- Audio ----------
-  let actx = null, thrustGain = null, noiseBuf = null;
+  let actx = null, thrustGain = null, noiseBuf = null, crunchBuf = null, echoIn = null;
   // background music: starts on the first key/tap (browsers block autoplay) and loops forever
   const music = new Audio('astrolander.mp3');
   music.loop = true; music.volume = 0.5;
@@ -273,35 +273,98 @@
       thrustGain = actx.createGain(); thrustGain.gain.value = 0;
       src.connect(lp).connect(thrustGain).connect(actx.destination);
       src.start();
+      // 8-bit style noise: sample-and-hold steps give the crunchy NES noise channel sound
+      crunchBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
+      const cd = crunchBuf.getChannelData(0);
+      for (let i = 0, v = 0; i < cd.length; i++) { if (i % 24 === 0) v = Math.random() < 0.5 ? -1 : 1; cd[i] = v; }
+      // 80s tape-style echo bus for the synth sounds
+      echoIn = actx.createGain();
+      const delay = actx.createDelay(1); delay.delayTime.value = 0.19;
+      const fb = actx.createGain(); fb.gain.value = 0.32;
+      const wet = actx.createGain(); wet.gain.value = 0.3;
+      echoIn.connect(delay); delay.connect(fb).connect(delay); delay.connect(wet).connect(actx.destination);
     } catch (e) { actx = null; }
   }
   function setThrustSound(on) {
     if (!thrustGain) return;
     thrustGain.gain.setTargetAtTime(on ? 0.35 : 0, actx.currentTime, 0.03);
   }
-  function beep(freq, dur, type = 'square', vol = 0.08, when = 0) {
+  // ---------- Retro synth (every sound except the thruster) ----------
+  // NES-style pulse waves with a chosen duty cycle (0.5 = square, 0.25 / 0.125 = thinner)
+  const pulseWaves = {};
+  function pulseWave(duty) {
+    if (!pulseWaves[duty]) {
+      const n = 48, re = new Float32Array(n), im = new Float32Array(n);
+      for (let k = 1; k < n; k++) re[k] = (2 / (k * Math.PI)) * Math.sin(k * Math.PI * duty);
+      pulseWaves[duty] = actx.createPeriodicWave(re, im);
+    }
+    return pulseWaves[duty];
+  }
+  // one synth note: pulse duty (number) or oscillator type (string), optional pitch slide,
+  // detuned unison, resonant filter sweep, vibrato and echo send
+  function tone({ freq, to = freq, dur, when = 0, vol = 0.06, wave = 0.5, attack = 0.004, detune = 0, cutoff = 0, vibrato = 0, echo = false }) {
     if (!actx) return;
     const t = actx.currentTime + when;
-    const o = actx.createOscillator(), g = actx.createGain();
-    o.type = type; o.frequency.value = freq;
-    g.gain.setValueAtTime(vol, t);
+    const g = actx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    o.connect(g).connect(actx.destination);
-    o.start(t); o.stop(t + dur + 0.02);
+    g.connect(actx.destination);
+    if (echo) g.connect(echoIn);
+    let head = g;
+    if (cutoff) {
+      const f = actx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 7;
+      f.frequency.setValueAtTime(cutoff, t);
+      f.frequency.exponentialRampToValueAtTime(Math.max(90, to * 1.5), t + dur);
+      f.connect(g); head = f;
+    }
+    for (const d of detune ? [-detune, detune] : [0]) {
+      const o = actx.createOscillator();
+      if (typeof wave === 'number') o.setPeriodicWave(pulseWave(wave)); else o.type = wave;
+      o.frequency.setValueAtTime(freq, t);
+      if (to !== freq) o.frequency.exponentialRampToValueAtTime(to, t + dur);
+      o.detune.value = d;
+      if (vibrato) {
+        const lfo = actx.createOscillator(), depth = actx.createGain();
+        lfo.frequency.value = 6.5; depth.gain.value = freq * vibrato;
+        lfo.connect(depth).connect(o.frequency);
+        lfo.start(t); lfo.stop(t + dur + 0.05);
+      }
+      o.connect(head);
+      o.start(t); o.stop(t + dur + 0.05);
+    }
   }
+  // 8-bit explosion: crunchy stepped noise whose pitch drops, plus a falling pulse sweep
   function bang(dur = 1.2, vol = 0.7) {
     if (!actx) return;
     const t = actx.currentTime;
-    const src = actx.createBufferSource(); src.buffer = noiseBuf;
-    const lp = actx.createBiquadFilter(); lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(2400, t);
-    lp.frequency.exponentialRampToValueAtTime(60, t + dur);
+    const src = actx.createBufferSource(); src.buffer = crunchBuf; src.loop = true;
+    src.playbackRate.setValueAtTime(1, t);
+    src.playbackRate.exponentialRampToValueAtTime(0.12, t + dur);
     const g = actx.createGain();
-    g.gain.setValueAtTime(vol, t);
+    g.gain.setValueAtTime(vol * 0.5, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(lp).connect(g).connect(actx.destination);
+    src.connect(g).connect(actx.destination);
     src.start(t); src.stop(t + dur + 0.05);
+    tone({ freq: 520, to: 40, dur: 0.6, wave: 0.25, vol: vol * 0.12 });
   }
+  // short UI sounds
+  const sfx = {
+    landed() { // 8-bit victory arpeggio ending on a vibrato chord
+      [523.25, 659.25, 783.99].forEach((f, i) => tone({ freq: f, dur: 0.09, when: i * 0.075, wave: 0.25, vol: 0.06 }));
+      tone({ freq: 1046.5, dur: 0.55, when: 0.225, wave: 0.25, vol: 0.06, vibrato: 0.012, echo: true });
+      tone({ freq: 1318.5, dur: 0.55, when: 0.225, wave: 0.5, vol: 0.035, vibrato: 0.012, echo: true });
+    },
+    tick(k) { tone({ freq: 1400 + k * 500, dur: 0.03, wave: 0.125, vol: 0.035 }); },
+    coin() { // classic two-note coin pickup
+      tone({ freq: 987.77, dur: 0.07, wave: 0.5, vol: 0.05 });
+      tone({ freq: 1318.5, dur: 0.28, when: 0.07, wave: 0.5, vol: 0.05 });
+    },
+    select() { tone({ freq: 880, dur: 0.035, wave: 0.25, vol: 0.04 }); },
+    confirm() { // 80s synth chirp: detuned saws sweeping up through a resonant filter
+      tone({ freq: 523.25, to: 1046.5, dur: 0.14, wave: 'sawtooth', detune: 12, cutoff: 3200, vol: 0.06, echo: true });
+    },
+  };
   // the famous two-note heartbeat, quickening as fuel runs down
   let beatTimer = 0, beatHigh = false;
   function updateBeat(dt) {
@@ -310,7 +373,8 @@
     const frac = clamp(ship.fuel / level.fuel, 0, 1);
     beatTimer = lerp(0.28, 1.0, frac);
     beatHigh = !beatHigh;
-    beep(beatHigh ? 62 : 55, 0.09, 'square', 0.16);
+    // 80s analog bass pluck: two detuned saws through a closing resonant filter
+    tone({ freq: beatHigh ? 62 : 55, dur: 0.2, wave: 'sawtooth', detune: 9, cutoff: 1600, vol: 0.2 });
   }
 
   // ---------- Input ----------
@@ -587,7 +651,7 @@
     };
     for (const r of tally.rows) { r.shown = 0; r.visible = false; r.done = false; }
     setState('results');
-    beep(880, 0.08, 'square', 0.06); beep(1175, 0.08, 'square', 0.06, 0.1); beep(1760, 0.18, 'square', 0.06, 0.2);
+    sfx.landed();
   }
 
   // ---------- Results tally ----------
@@ -605,11 +669,11 @@
     const k = clamp(tally.t / r.dur, 0, 1);
     r.shown = Math.round(r.value * k);
     tally.tick -= dt;
-    if (tally.tick <= 0 && k < 1) { beep(1400 + k * 500, 0.025, 'square', 0.03); tally.tick = 0.05; }
+    if (tally.tick <= 0 && k < 1) { sfx.tick(k); tally.tick = 0.05; }
     if (k >= 1) {
       r.done = true;
       if (r.add) score += r.value;
-      beep(440, 0.07, 'square', 0.06);
+      sfx.coin();
       tally.pause = 0.28;
     }
   }
@@ -650,7 +714,7 @@
     if (entry.done) return;
     const i = LETTERS.indexOf(entry.letters[entry.idx]);
     entry.letters[entry.idx] = LETTERS[(i + dir + LETTERS.length) % LETTERS.length];
-    beep(900, 0.03, 'square', 0.04);
+    sfx.select();
   }
   function updateEntryRepeat(dt) {
     const dir = input.left ? -1 : input.right ? 1 : 0;
@@ -673,7 +737,7 @@
   }
   function entryConfirm() {
     if (entry.done) return;
-    beep(660, 0.06, 'square', 0.06);
+    sfx.confirm();
     if (entry.idx < 2) {
       entry.idx++;
       entry.letters[entry.idx] = entry.letters[entry.idx] === '_' ? 'A' : entry.letters[entry.idx];
