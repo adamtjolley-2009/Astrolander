@@ -250,7 +250,16 @@
 
   // ---------- Audio ----------
   let actx = null, thrustGain = null, noiseBuf = null;
+  // background music: starts on the first key/tap (browsers block autoplay) and loops forever
+  const music = new Audio('astrolander.mp3');
+  music.loop = true; music.volume = 0.5;
+  let musicOn = false;
+  function playMusic() {
+    if (musicOn && music.paused && state !== 'paused' && !document.hidden) music.play().catch(() => {});
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) music.pause(); else playMusic(); });
   function initAudio() {
+    musicOn = true; playMusic();
     if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
     try {
       actx = new (window.AudioContext || window.webkitAudioContext)();
@@ -360,6 +369,7 @@
     state = s; stateAge = 0;
     $('pauseBtn').classList.toggle('hidden', s !== 'flying' && s !== 'paused');
     if (s !== 'flying') setThrustSound(false);
+    if (s === 'paused') music.pause(); else playMusic();
   }
 
   function press(key) {
