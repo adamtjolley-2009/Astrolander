@@ -249,10 +249,10 @@
   }
 
   // ---------- Audio ----------
-  let actx = null, thrustGain = null, noiseBuf = null, crunchBuf = null, echoIn = null;
+  let actx = null, sfxOut = null, thrustGain = null, noiseBuf = null, crunchBuf = null, echoIn = null;
   // background music: starts on the first key/tap (browsers block autoplay) and loops forever
   const music = new Audio('astrolander.mp3');
-  music.loop = true; music.volume = 0.5;
+  music.loop = true; music.volume = 0.35;
   let musicOn = false;
   function playMusic() {
     if (musicOn && music.paused && state !== 'paused' && !document.hidden) music.play().catch(() => {});
@@ -263,6 +263,9 @@
     if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
     try {
       actx = new (window.AudioContext || window.webkitAudioContext)();
+      // master volume for all sound effects (the music is a separate <audio> element)
+      sfxOut = actx.createGain(); sfxOut.gain.value = 1.35;
+      sfxOut.connect(actx.destination);
       noiseBuf = actx.createBuffer(1, actx.sampleRate * 2, actx.sampleRate);
       const d = noiseBuf.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -271,7 +274,7 @@
       const lp = actx.createBiquadFilter();
       lp.type = 'lowpass'; lp.frequency.value = 340;
       thrustGain = actx.createGain(); thrustGain.gain.value = 0;
-      src.connect(lp).connect(thrustGain).connect(actx.destination);
+      src.connect(lp).connect(thrustGain).connect(sfxOut);
       src.start();
       // 8-bit style noise: sample-and-hold steps give the crunchy NES noise channel sound
       crunchBuf = actx.createBuffer(1, actx.sampleRate, actx.sampleRate);
@@ -282,7 +285,7 @@
       const delay = actx.createDelay(1); delay.delayTime.value = 0.19;
       const fb = actx.createGain(); fb.gain.value = 0.32;
       const wet = actx.createGain(); wet.gain.value = 0.3;
-      echoIn.connect(delay); delay.connect(fb).connect(delay); delay.connect(wet).connect(actx.destination);
+      echoIn.connect(delay); delay.connect(fb).connect(delay); delay.connect(wet).connect(sfxOut);
     } catch (e) { actx = null; }
   }
   function setThrustSound(on) {
@@ -309,7 +312,7 @@
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(vol, t + attack);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    g.connect(actx.destination);
+    g.connect(sfxOut);
     if (echo) g.connect(echoIn);
     let head = g;
     if (cutoff) {
@@ -344,7 +347,7 @@
     const g = actx.createGain();
     g.gain.setValueAtTime(vol * 0.5, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(g).connect(actx.destination);
+    src.connect(g).connect(sfxOut);
     src.start(t); src.stop(t + dur + 0.05);
     tone({ freq: 520, to: 40, dur: 0.6, wave: 0.25, vol: vol * 0.12 });
   }
