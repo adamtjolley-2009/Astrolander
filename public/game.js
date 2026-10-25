@@ -355,7 +355,6 @@
       tone({ freq: 1046.5, dur: 0.55, when: 0.225, wave: 0.25, vol: 0.06, vibrato: 0.012, echo: true });
       tone({ freq: 1318.5, dur: 0.55, when: 0.225, wave: 0.5, vol: 0.035, vibrato: 0.012, echo: true });
     },
-    tick(k) { tone({ freq: 1400 + k * 500, dur: 0.03, wave: 0.125, vol: 0.035 }); },
     coin() { // classic two-note coin pickup
       tone({ freq: 987.77, dur: 0.07, wave: 0.5, vol: 0.05 });
       tone({ freq: 1318.5, dur: 0.28, when: 0.07, wave: 0.5, vol: 0.05 });
@@ -647,7 +646,7 @@
         { label: 'LANDING ACCURACY BONUS', value: accuracyBonus, add: true },
         { label: 'TOTAL', value: fuelBonus + speedBonus + accuracyBonus, add: false },
       ],
-      i: -1, t: 0, pause: 0.6, ready: false, tick: 0,
+      i: -1, t: 0, pause: 0.6, ready: false,
     };
     for (const r of tally.rows) { r.shown = 0; r.visible = false; r.done = false; }
     setState('results');
@@ -668,8 +667,6 @@
     tally.t += dt;
     const k = clamp(tally.t / r.dur, 0, 1);
     r.shown = Math.round(r.value * k);
-    tally.tick -= dt;
-    if (tally.tick <= 0 && k < 1) { sfx.tick(k); tally.tick = 0.05; }
     if (k >= 1) {
       r.done = true;
       if (r.add) score += r.value;
