@@ -176,11 +176,11 @@
     if (peak) {
       const rise = Math.min(440, 110 + n * 26);
       const side = rnd() < 0.5 ? -1 : 1;
-      const pc = WORLD_W / 2 + side * (130 + rnd() * 110);
+      const half = padW / 2 + 40 + rise * 0.5;   // half-width of the mountain's foot
+      const pc = clamp(WORLD_W / 2 + side * (130 + rnd() * 110), X0 + half + 40, X1 - half - 40);
       const top = base - rise;
       pad = { x1: Math.round(pc - padW / 2), x2: Math.round(pc + padW / 2), y: top };
-      start = { x: pc - side * (300 + rnd() * 80), y: top - 150 - rnd() * 60 };
-      const half = padW / 2 + 40 + rise * 0.5;
+      start = { x: clamp(pc - side * (300 + rnd() * 80), X0 + 70, X1 - 70), y: top - 150 - rnd() * 60 };
       mtn = { a: pc - half, b: pc + half, top, pc };
     } else {
       const x1 = Math.round(lerp(X0 + 90, X1 - 90 - padW, rnd()));
@@ -325,12 +325,6 @@
       if (i < K - 1) carve(c.bot + 1, corr[i + 1].top - 1, x0, x1);
       const lo = SHAFT + 2, hi = COLS - SHAFT - 3;
       const nearPad = (col) => i === K - 1 && col >= k - 2 && col <= k + 3;
-      // stalactites and stalagmites, never two in neighbouring columns
-      for (let col = lo; col <= hi; col++) {
-        if (nearPad(col) || rnd() > bumpP) continue;
-        if (rnd() < 0.5) open[c.top][col] = false; else open[c.bot][col] = false;
-        col++;
-      }
       // the odd taller pocket or dip in the corridor
       if (rnd() < 0.6) {
         const w = 2 + Math.floor(rnd() * 3), at = lo + Math.floor(rnd() * (hi - lo - w));
@@ -341,6 +335,14 @@
           const row = up ? c.top - 1 : c.bot + 1;
           if (up ? i > 0 : i < K - 1) carve(row, row, at, at + w - 1);
         }
+      }
+      // stalactites and stalagmites, never two in neighbouring columns, always attached to rock
+      for (let col = lo; col <= hi; col++) {
+        if (nearPad(col) || rnd() > bumpP) continue;
+        const up = rnd() < 0.5;
+        if (up ? open[c.top - 1][col] : open[c.bot + 1][col]) continue;   // keep outcrops attached to rock
+        if (up) open[c.top][col] = false; else open[c.bot][col] = false;
+        col++;
       }
       side = 1 - side;
     }
