@@ -152,8 +152,8 @@
     { kind: 'canyon', seed: 4 },
     { kind: 'cavern', seed: 5, padW: 88 },
     { kind: 'cliff', seed: 6, padW: 80 },
-    { kind: 'snake', seed: 19 },
     { kind: 'canyon', seed: 12, smooth: true },
+    { kind: 'snake', seed: 19, organic: true },
     { kind: 'canyon', seed: 20, extraDepth: 1500 },
   ];
   function genLevel(n) {
@@ -161,7 +161,7 @@
     const s = spec.seed;
     const rnd = mulberry32(s * 9973 + 1337);
     const padW = spec.padW || Math.max(56, 120 - s * 8);
-    const L = spec.kind === 'snake' ? genSnake(s, rnd, padW)
+    const L = spec.kind === 'snake' ? genSnake(s, rnd, padW, spec.organic)
       : spec.kind === 'canyon' ? genCanyon(s, rnd, padW, spec)
       : spec.kind === 'cavern' ? genCavern(s, rnd, padW, spec.hard)
       : spec.kind === 'cliff' ? genCliff(s, rnd, padW)
@@ -347,7 +347,9 @@
 
   // Trace the boundary between open and solid cells of a carved grid, roughening the
   // corners. The pad sits flat on the floor of cells k and k+1 at lattice row padRow.
-  function traceGrid(open, { C, Y0, padRow, k, padW, n }) {
+  // organic: join the cell edges into long walls, round off the square corners and
+  // re-roughen them with a canyon-like jagged edge.
+  function traceGrid(open, { C, Y0, padRow, k, padW, n, organic }) {
     const ROWS = open.length, COLS = open[0].length;
     const J = 12;
     const vert = (i, j) => {
@@ -369,11 +371,16 @@
         if (solid(y, x + 1)) lines.push([vert(y, x + 1), vert(y + 1, x + 1)]);
       }
     }
+    if (organic) {
+      const walls = chainEdges(lines.splice(0));
+      walls.forEach((w, i) => lines.push(roughen(w, n * 1009 + i)));
+    }
     // openings in the top row lead straight up to open sky
     for (let x = 0; x < COLS; x++) {
       if (!open[0][x]) continue;
-      if (x === 0 || !open[0][x - 1]) { const [vx, vy] = vert(0, x); lines.push(wallUp(vx, vy, n * 31 + x)); }
-      if (x === COLS - 1 || !open[0][x + 1]) { const [vx, vy] = vert(0, x + 1); lines.push(wallUp(vx, vy, n * 37 + x)); }
+      const up = (vx, vy, sd) => (organic ? roughen(wallUp(vx, vy, sd), sd) : wallUp(vx, vy, sd));
+      if (x === 0 || !open[0][x - 1]) { const [vx, vy] = vert(0, x); lines.push(up(vx, vy, n * 31 + x)); }
+      if (x === COLS - 1 || !open[0][x + 1]) { const [vx, vy] = vert(0, x + 1); lines.push(up(vx, vy, n * 37 + x)); }
     }
     const py = Y0 + padRow * C, xa = k * C, xb = (k + 2) * C, inset = (2 * C - padW) / 2;
     const pad = { x1: xa + inset, x2: xb - inset, y: py };
@@ -381,10 +388,63 @@
     return { lines, pad };
   }
 
+  // Join two-point edges that share end points into long polylines.
+  function chainEdges(edges) {
+    const key = (q) => q[0].toFixed(3) + ',' + q[1].toFixed(3);
+    const at = new Map();
+    edges.forEach((e, i) => { for (const q of e) { const kk = key(q); if (!at.has(kk)) at.set(kk, []); at.get(kk).push(i); } });
+    const used = new Array(edges.length).fill(false);
+    const free = (kk) => at.get(kk).filter((i) => !used[i]);
+    const walk = (kk) => {
+      const path = [];
+      for (let next = free(kk); next.length; next = free(kk)) {
+        const e = edges[next[0]];
+        used[next[0]] = true;
+        const [a, b] = key(e[0]) === kk ? e : [e[1], e[0]];
+        if (!path.length) path.push(a);
+        path.push(b);
+        kk = key(b);
+      }
+      return path;
+    };
+    const paths = [];
+    // open runs start at their loose ends, then whatever is left is closed loops
+    for (const [kk, list] of at) if (list.length % 2) while (free(kk).length) paths.push(walk(kk));
+    for (const kk of at.keys()) while (free(kk).length) paths.push(walk(kk));
+    return paths;
+  }
+  // Round a wall's corners, then re-sample it with an uneven, jagged edge and a slow
+  // in-and-out wobble like the canyon walls. The end points stay put so walls still
+  // meet the pad and each other exactly.
+  function roughen(path, seed) {
+    const pts = smoothLine(path, 3);
+    const h = mulberry32(seed);
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    const JAG = 15, WOBBLE = 10, phase = h() * Math.PI * 2, out = [pts[0]];
+    const step = () => 38 + h() * 34;
+    let d = 0, next = step();
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, ay] = pts[i - 1], [bx, by] = pts[i];
+      const len = Math.hypot(bx - ax, by - ay);
+      while (len > 0 && next <= d + len && next < total - 30) {
+        const t = (next - d) / len, x = lerp(ax, bx, t), y = lerp(ay, by, t);
+        // no jag right next to the ends, so the floor beside the pad stays level
+        const fade = clamp(Math.min(next, total - next) / 60 - 1, 0, 1);
+        const j = fade * ((h() - 0.5) * 2 * JAG + Math.sin(next / 95 + phase) * WOBBLE);
+        out.push([x - ((by - ay) / len) * j, y + ((bx - ax) / len) * j]);
+        next += step();
+      }
+      d += len;
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
   // Switchback tunnels: carve corridors into a grid of rock, each one running the
   // full width and dropping into the next at the opposite end, then trace the
   // outline with roughened corners.
-  function genSnake(n, rnd, padW) {
+  function genSnake(n, rnd, padW, organic) {
     const C = 50, COLS = WORLD_W / C, Y0 = -300;
     const K = clamp(1 + Math.floor(n / 3), 3, 5);   // number of corridors
     const CH = 4, LAST_H = 5, BAND = 4, SHAFT = 4;
@@ -444,7 +504,7 @@
       side = 1 - side;
     }
 
-    const { lines, pad } = traceGrid(open, { C, Y0, padRow, k, padW, n });
+    const { lines, pad } = traceGrid(open, { C, Y0, padRow, k, padW, n, organic });
 
     const pathLen = K * (COLS - 2 - SHAFT) * C + ROWS * C;
     return { lines, pad, start, fuel: Math.round(400 + pathLen * 0.9), top: Y0 - 1000 };
