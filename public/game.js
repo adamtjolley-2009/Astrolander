@@ -22,13 +22,6 @@
   const FEET = [[-8, 10], [8, 10]];
   const FOOT_Y = 10;
 
-  // Asteroid outlines (unit radius)
-  const ROCK_SHAPES = [
-    [[0, -1], [0.5, -1], [1, -0.5], [1, 0], [0.5, 1], [-0.25, 1], [-0.25, 0.5], [-0.75, 1], [-1, 0.25], [-0.5, 0], [-1, -0.25], [-0.5, -1]],
-    [[-0.5, -1], [0.25, -1], [1, -0.5], [0.5, -0.25], [1, 0.25], [0.5, 1], [-0.25, 0.75], [-0.5, 1], [-1, 0.5], [-1, -0.5]],
-    [[-0.25, -1], [0.5, -1], [1, -0.25], [1, 0.25], [0.5, 1], [0, 1], [0, 0.25], [-0.5, 1], [-1, 0.25], [-0.75, 0], [-1, -0.5], [-0.5, -0.5]],
-  ];
-
   // ---------- Vector font (4x6 grid, y down) ----------
   const FONT = {
     A: [[[0, 6], [0, 2], [2, 0], [4, 2], [4, 6]], [[0, 4], [4, 4]]],
@@ -143,37 +136,120 @@
   }
 
   // ---------- Level generation ----------
+  // Every level is built from its number, so all players fly the same maps.
+  //   open:   wide sky over hilly ground
+  //   peak:   start low and land on top of a mountain
+  //   canyon: a winding shaft straight down
+  //   snake:  switchback tunnels that zig-zag back and forth on the way down
+  function levelKind(n) {
+    const first = ['open', 'peak', 'open', 'canyon', 'peak', 'snake', 'canyon', 'snake', 'peak', 'snake'];
+    return n <= first.length ? first[n - 1] : ['snake', 'canyon', 'snake', 'peak'][(n - 11) % 4];
+  }
   function genLevel(n) {
     const rnd = mulberry32(n * 9973 + 1337);
-    const tunnel = n > 1;
-    const depth = 520 + (n - 1) * 420;
+    const padW = Math.max(56, 120 - n * 8);
+    const kind = levelKind(n);
+    const L = kind === 'snake' ? genSnake(n, rnd, padW)
+      : kind === 'canyon' ? genCanyon(n, rnd, padW)
+      : genOpen(n, rnd, padW, kind === 'peak');
+    L.n = n; L.kind = kind;
+    // collision segments; the one matching the pad exactly is the only safe surface
+    const { pad } = L;
+    L.segs = [];
+    for (const pts of L.lines) {
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+        const isPad = ay === pad.y && by === pad.y && Math.min(ax, bx) === pad.x1 && Math.max(ax, bx) === pad.x2;
+        L.segs.push(withBounds({ ax, ay, bx, by, pad: isPad }));
+      }
+    }
+    return L;
+  }
+
+  // Open sky over rolling ground. With peak = true the ship starts low, off to one
+  // side, and the pad sits on top of a mountain.
+  function genOpen(n, rnd, padW, peak) {
+    const X0 = 15, X1 = WORLD_W - 15;
+    const base = 640;
+    const ground = [];
+    let pad, start, mtn = null;
+    if (peak) {
+      const rise = Math.min(440, 110 + n * 26);
+      const side = rnd() < 0.5 ? -1 : 1;
+      const pc = WORLD_W / 2 + side * (130 + rnd() * 110);
+      const top = base - rise;
+      pad = { x1: Math.round(pc - padW / 2), x2: Math.round(pc + padW / 2), y: top };
+      start = { x: pc - side * (300 + rnd() * 80), y: top - 150 - rnd() * 60 };
+      const half = padW / 2 + 40 + rise * 0.5;
+      mtn = { a: pc - half, b: pc + half, top, pc };
+    } else {
+      const x1 = Math.round(lerp(X0 + 90, X1 - 90 - padW, rnd()));
+      pad = { x1, x2: x1 + padW, y: base - 10 - Math.round(rnd() * 40) };
+      const pc = x1 + padW / 2;
+      start = n === 1 ? { x: WORLD_W / 2, y: -120 } : { x: pc > WORLD_W / 2 ? 200 : 800, y: -60 };
+    }
+    const rough = peak ? 60 : 30 + n * 30;
+    const hill = (x) => {
+      // rolling ground, with the odd tall spire on rougher levels
+      let y = base - 10 - rnd() * rough;
+      if (!peak && n > 1 && rnd() < 0.12) y -= rough * 1.6;
+      // keep the approach to the pad clear
+      const d = x < pad.x1 ? pad.x1 - x : x - pad.x2;
+      if (!peak && d < 90) y = Math.max(y, pad.y - d * 0.6);
+      if (mtn) y = Math.max(y, mtn.top + 80);
+      return y;
+    };
+    const padEdge = 8;
+    const gapA = mtn ? mtn.a : pad.x1 - padEdge, gapB = mtn ? mtn.b : pad.x2 + padEdge;
+    ground.push([X0, base - 40 - rnd() * rough]);
+    for (let x = X0 + 35; x < gapA - 15; x += 30 + rnd() * 25) ground.push([x, hill(x)]);
+    if (mtn) {
+      // jagged left slope up to the summit
+      for (const t of [0, 0.35, 0.7]) ground.push([lerp(mtn.a, pad.x1 - padEdge, t) + (rnd() - 0.5) * 14, lerp(base - 20, mtn.top + 10, t) + (rnd() - 0.5) * 26]);
+    }
+    ground.push([pad.x1 - padEdge, pad.y + 10 + rnd() * 10]);
+    ground.push([pad.x1, pad.y], [pad.x2, pad.y]);
+    ground.push([pad.x2 + padEdge, pad.y + 10 + rnd() * 10]);
+    if (mtn) {
+      for (const t of [0.3, 0.65, 1]) ground.push([lerp(pad.x2 + padEdge, mtn.b, t) + (rnd() - 0.5) * 14, lerp(mtn.top + 10, base - 20, t) + (rnd() - 0.5) * 26]);
+    }
+    for (let x = gapB + 30; x < X1 - 20; x += 30 + rnd() * 25) ground.push([x, hill(x)]);
+    ground.push([X1, base - 40 - rnd() * rough]);
+
+    const top = start.y - 900;
+    const lines = [[[X0, top], ...ground, [X1, top]]];
+    const fuel = Math.round(600 + (pad.y - start.y) * 0.5 + Math.abs((pad.x1 + pad.x2) / 2 - start.x) * 0.9);
+    return { lines, pad, start, fuel, top };
+  }
+
+  // A shaft that winds down to a landing chamber.
+  function genCanyon(n, rnd, padW) {
+    const depth = 900 + Math.min(n, 12) * 230;
     const floorBase = depth + 300;
     const step = 130;
     const rows = [];
     let cx = WORLD_W / 2;
-    const minW = Math.max(190, 470 - n * 45);
+    const minW = Math.max(220, 520 - n * 30);
     for (let y = -1400; y <= depth; y += step) {
-      let w = tunnel ? minW + rnd() * 110 : WORLD_W - 30;
+      let w = minW + rnd() * 110;
       if (y < 60) w = Math.max(w, 360);
       rows.push({ y, cx, w });
-      if (tunnel && y >= 60) {
-        cx += (rnd() - 0.5) * 2 * Math.min(115, 45 + n * 14);
-      }
+      if (y >= 60) cx += (rnd() - 0.5) * 2 * Math.min(115, 45 + n * 14);
       cx = clamp(cx, w / 2 + 25, WORLD_W - w / 2 - 25);
     }
     // landing chamber
     const last = rows[rows.length - 1];
-    const chamberW = tunnel ? Math.max(420, last.w + 120) : WORLD_W - 30;
+    const chamberW = Math.max(420, last.w + 120);
     const ccx = clamp(last.cx, chamberW / 2 + 15, WORLD_W - chamberW / 2 - 15);
     rows.push({ y: depth + 120, cx: ccx, w: chamberW });
 
-    const jag = tunnel ? 18 : 0;
+    const jag = 18;
     const left = [], right = [];
     for (let i = 0; i < rows.length; i++) {
       const r = rows[i];
       left.push([r.cx - r.w / 2 + (rnd() - 0.5) * jag, r.y]);
       right.push([r.cx + r.w / 2 + (rnd() - 0.5) * jag, r.y]);
-      if (i < rows.length - 1 && tunnel) {
+      if (i < rows.length - 1) {
         const nr = rows[i + 1];
         const my = (r.y + nr.y) / 2;
         const lx = (r.cx - r.w / 2 + nr.cx - nr.w / 2) / 2;
@@ -185,67 +261,117 @@
 
     // floor with landing pad
     const L = ccx - chamberW / 2, R = ccx + chamberW / 2;
-    const padW = Math.max(56, 120 - n * 8);
-    const padX1 = lerp(L + 50, R - 50 - padW, rnd());
+    const padX1 = Math.round(lerp(L + 50, R - 50 - padW, rnd()));
     const padX2 = padX1 + padW;
-    const amp = tunnel ? 55 : 170;
-    const padY = floorBase - 30 - rnd() * (tunnel ? 30 : 110);
+    const amp = 55;
+    const padY = Math.round(floorBase - 30 - rnd() * 30);
     const floor = [];
     floor.push([L, floorBase - 40 - rnd() * amp]);
-    for (let x = L + 35; x < padX1 - 20; x += 35 + rnd() * 20) {
-      floor.push([x, floorBase - 10 - rnd() * amp]);
-    }
+    for (let x = L + 35; x < padX1 - 20; x += 35 + rnd() * 20) floor.push([x, floorBase - 10 - rnd() * amp]);
     floor.push([padX1 - 8, padY + 10 + rnd() * 20]);
-    const padIndex = floor.length;
     floor.push([padX1, padY], [padX2, padY]);
     floor.push([padX2 + 8, padY + 10 + rnd() * 20]);
-    for (let x = padX2 + 30; x < R - 20; x += 35 + rnd() * 20) {
-      floor.push([x, floorBase - 10 - rnd() * amp]);
-    }
+    for (let x = padX2 + 30; x < R - 20; x += 35 + rnd() * 20) floor.push([x, floorBase - 10 - rnd() * amp]);
     floor.push([R, floorBase - 40 - rnd() * amp]);
-    // walls meet the floor
     left.push([L, floor[0][1]]);
     right.push([R, floor[floor.length - 1][1]]);
 
-    // slowly spinning asteroids hanging in the shaft
-    const rocks = [];
-    if (n >= 2) {
-      for (let i = 0; i < rows.length - 2; i++) {
-        const r = rows[i];
-        if (r.y < 200 || r.y > depth - 120 || rnd() > Math.min(0.45, 0.15 + n * 0.05)) continue;
-        const side = rnd() < 0.5 ? -1 : 1;
-        const rad = Math.min(40, r.w * 0.18);
-        const wallX = r.cx + side * r.w / 2;
-        rocks.push({
-          x: wallX - side * (rad + 34), y: r.y + (rnd() - 0.5) * 40, r: rad,
-          shape: ROCK_SHAPES[Math.floor(rnd() * ROCK_SHAPES.length)],
-          a: rnd() * Math.PI * 2, spin: (rnd() - 0.5) * 0.9,
-        });
-      }
-    }
-
-    // static collision segments
-    const segs = [];
-    const addLine = (pts, padAt = -1) => {
-      for (let i = 0; i < pts.length - 1; i++) {
-        segs.push(withBounds({ ax: pts[i][0], ay: pts[i][1], bx: pts[i + 1][0], by: pts[i + 1][1], pad: i === padAt }));
-      }
-    };
-    addLine(left);
-    addLine(right);
-    addLine(floor, padIndex);
-
     const fuel = Math.round(650 + depth * 0.55 - n * 15);
     return {
-      n, left, right, floor, padIndex, rocks, segs, tunnel,
+      lines: [left, right, floor],
       pad: { x1: padX1, x2: padX2, y: padY },
-      start: { x: WORLD_W / 2, y: -120 },
-      fuel, top: -1400,
+      start: { x: WORLD_W / 2, y: -120 }, fuel, top: -1400,
     };
   }
-  function rockPoints(r) {
-    const c = Math.cos(r.a), s = Math.sin(r.a);
-    return r.shape.map(([x, y]) => [r.x + (x * c - y * s) * r.r, r.y + (x * s + y * c) * r.r]);
+
+  // Switchback tunnels: carve corridors into a grid of rock, each one running the
+  // full width and dropping into the next at the opposite end, then trace the
+  // outline with roughened corners.
+  function genSnake(n, rnd, padW) {
+    const C = 50, COLS = WORLD_W / C, Y0 = -300;
+    const K = clamp(1 + Math.floor(n / 3), 3, 5);   // number of corridors
+    const CH = 4, LAST_H = 5, BAND = 4, SHAFT = 4;
+    const corr = [];
+    let r = 4;                                        // rows 0-3 are the entry shaft
+    for (let i = 0; i < K; i++) {
+      const h = i === K - 1 ? LAST_H : CH;
+      corr.push({ top: r, bot: r + h - 1 });
+      r += h + BAND;
+    }
+    const ROWS = corr[K - 1].bot + 2;
+    const open = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
+    const carve = (r0, r1, c0, c1, v = true) => {
+      for (let y = r0; y <= r1; y++) for (let x = c0; x <= c1; x++) {
+        if (y >= 0 && y < ROWS && x >= 1 && x <= COLS - 2) open[y][x] = v;
+      }
+    };
+    const ends = (s) => (s === 0 ? [1, SHAFT] : [COLS - 1 - SHAFT, COLS - 2]);
+
+    let side = rnd() < 0.5 ? 0 : 1;                   // 0: enter the corridor at its left end
+    const [s0, s1] = ends(side);
+    carve(0, corr[0].top - 1, s0, s1);
+    const start = { x: (s0 + s1 + 1) / 2 * C, y: Y0 + 1.6 * C };
+
+    // pad on the floor of the last corridor, in the far half from where you drop in
+    const lastSide = (side + K - 1) % 2;
+    const k = lastSide === 0 ? 11 + Math.floor(rnd() * 5) : 7 - Math.floor(rnd() * 5);
+    const padRow = corr[K - 1].bot + 1;
+
+    const bumpP = Math.min(0.32, 0.08 + n * 0.02);
+    for (let i = 0; i < K; i++) {
+      const c = corr[i];
+      carve(c.top, c.bot, 1, COLS - 2);
+      const [x0, x1] = ends(1 - side);
+      if (i < K - 1) carve(c.bot + 1, corr[i + 1].top - 1, x0, x1);
+      const lo = SHAFT + 2, hi = COLS - SHAFT - 3;
+      const nearPad = (col) => i === K - 1 && col >= k - 2 && col <= k + 3;
+      // stalactites and stalagmites, never two in neighbouring columns
+      for (let col = lo; col <= hi; col++) {
+        if (nearPad(col) || rnd() > bumpP) continue;
+        if (rnd() < 0.5) open[c.top][col] = false; else open[c.bot][col] = false;
+        col++;
+      }
+      // the odd taller pocket or dip in the corridor
+      if (rnd() < 0.6) {
+        const w = 2 + Math.floor(rnd() * 3), at = lo + Math.floor(rnd() * (hi - lo - w));
+        const up = rnd() < 0.5;
+        let clear = true;
+        for (let col = at; col < at + w; col++) if (nearPad(col)) clear = false;
+        if (clear) {
+          const row = up ? c.top - 1 : c.bot + 1;
+          if (up ? i > 0 : i < K - 1) carve(row, row, at, at + w - 1);
+        }
+      }
+      side = 1 - side;
+    }
+
+    // trace the boundary between open and solid cells
+    const J = 12;
+    const vert = (i, j) => {
+      const h = mulberry32(i * 7919 + j * 104729 + n * 15485863);
+      let dx = (h() - 0.5) * 2 * J, dy = (h() - 0.5) * 2 * J;
+      if (i === padRow && j >= k - 1 && j <= k + 3) {
+        if (j >= k && j <= k + 2) { dx = 0; dy = 0; } else dy = Math.abs(dy);
+      }
+      return [j * C + dx, Y0 + i * C + dy];
+    };
+    const solid = (y, x) => y < 0 || y >= ROWS || x < 0 || x >= COLS || !open[y][x];
+    const lines = [];
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (!open[y][x]) continue;
+        if (solid(y - 1, x)) lines.push([vert(y, x), vert(y, x + 1)]);
+        if (solid(y + 1, x) && !(y + 1 === padRow && (x === k || x === k + 1))) lines.push([vert(y + 1, x), vert(y + 1, x + 1)]);
+        if (solid(y, x - 1)) lines.push([vert(y, x), vert(y + 1, x)]);
+        if (solid(y, x + 1)) lines.push([vert(y, x + 1), vert(y + 1, x + 1)]);
+      }
+    }
+    const py = Y0 + padRow * C, xa = k * C, xb = (k + 2) * C, inset = (2 * C - padW) / 2;
+    const pad = { x1: xa + inset, x2: xb - inset, y: py };
+    lines.push([[xa, py], [pad.x1, py], [pad.x2, py], [xb, py]]);
+
+    const pathLen = K * (COLS - 2 - SHAFT) * C + ROWS * C;
+    return { lines, pad, start, fuel: Math.round(400 + pathLen * 0.9), top: Y0 - 1000 };
   }
 
   // ---------- Audio ----------
@@ -537,21 +663,12 @@
       }
     };
     for (const s of level.segs) test(s);
-    for (const r of level.rocks) {
-      if (Math.abs(r.x - ship.x) > r.r + 16 || Math.abs(r.y - ship.y) > r.r + 16) continue;
-      const pts = rockPoints(r);
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i], b = pts[(i + 1) % pts.length];
-        test(withBounds({ ax: a[0], ay: a[1], bx: b[0], by: b[1], pad: false }));
-      }
-    }
     return { hit, onlyPad };
   }
 
   function update(dt) {
     time += dt; stateAge += dt; frameNo++;
     updateParticles(dt);
-    if (level && state !== 'paused') for (const r of level.rocks) r.a += r.spin * dt;
 
     switch (state) {
       case 'title': attractCamera(); return;
@@ -830,17 +947,11 @@
   // ---------- World rendering ----------
   function drawTerrain() {
     applyCam();
-    const { left, right, floor, padIndex, rocks, pad } = level;
+    const { lines, pad } = level;
     const lw = 1.3 / scale;
     ctx.beginPath();
-    polyPath(left); polyPath(right);
-    polyPath(floor.slice(0, padIndex + 1));
-    polyPath(floor.slice(padIndex + 1));
+    for (const l of lines) polyPath(l);
     glow(lw, 0.8);
-
-    ctx.beginPath();
-    for (const r of rocks) polyPath(rockPoints(r), true);
-    glow(lw, 0.9);
 
     // landing pad: a brighter, thicker double line with blinking end markers
     const bright = 0.75 + 0.25 * Math.sin(time * 6);
@@ -957,8 +1068,8 @@
       vtext('ASTROLANDER', W / 2, H * 0.17, big, 'center');
       const s = fitSize(32, 13);
       drawCenter([
-        'PILOT YOUR SHIP DOWN THE CAVERN',
-        'AND LAND ON THE PAD',
+        'PILOT YOUR SHIP TO THE PAD',
+        'AND TOUCH DOWN GENTLY',
         '',
         'ROTATE   < >',
         'THRUST   FIRE ENGINE',
