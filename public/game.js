@@ -153,7 +153,7 @@
     { kind: 'cliff', seed: 6, padW: 80 },
     { kind: 'canyon', seed: 4 },
     { kind: 'cavern', seed: 5, padW: 88, hiddenPad: 2000 },
-    { kind: 'snake', seed: 19, organic: true },
+    { kind: 'snake', seed: 19, organic: true, corridors: 4 },
     { kind: 'canyon', seed: 20, extraDepth: 1500 },
   ];
   function genLevel(n) {
@@ -161,7 +161,7 @@
     const s = spec.seed;
     const rnd = mulberry32(s * 9973 + 1337);
     const padW = spec.padW || Math.max(56, 120 - s * 8);
-    const L = spec.kind === 'snake' ? genSnake(s, rnd, padW, spec.organic)
+    const L = spec.kind === 'snake' ? genSnake(s, rnd, padW, spec.organic, spec.corridors)
       : spec.kind === 'canyon' ? genCanyon(s, rnd, padW, spec)
       : spec.kind === 'cavern' ? genCavern(s, rnd, padW, spec.hard, spec.hiddenPad)
       : spec.kind === 'cliff' ? genCliff(s, rnd, padW)
@@ -446,9 +446,9 @@
   // Switchback tunnels: carve corridors into a grid of rock, each one running the
   // full width and dropping into the next at the opposite end, then trace the
   // outline with roughened corners.
-  function genSnake(n, rnd, padW, organic) {
+  function genSnake(n, rnd, padW, organic, corridors) {
     const C = 50, COLS = WORLD_W / C, Y0 = -300;
-    const K = clamp(1 + Math.floor(n / 3), 3, 5);   // number of corridors
+    const K = corridors || clamp(1 + Math.floor(n / 3), 3, 5);   // number of corridors
     const CH = 4, LAST_H = 5, BAND = 4, SHAFT = 4;
     const corr = [];
     let r = 4;                                        // rows 0-3 are the entry shaft
