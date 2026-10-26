@@ -203,6 +203,16 @@
     }
     return y;
   }
+  // a slightly jagged wall rising from (x, y) up to OPEN_TOP, listed top to bottom,
+  // so a shaft is open to the sky like the canyons
+  const OPEN_TOP = -1400;
+  function wallUp(x, y, seed) {
+    const h = mulberry32(seed), pts = [];
+    for (let yy = y - 130; yy > OPEN_TOP; yy -= 130) pts.unshift([x + (h() - 0.5) * 18, yy]);
+    pts.unshift([x, OPEN_TOP]);
+    pts.push([x, y]);
+    return pts;
+  }
   // round off a polyline's corners (Chaikin), keeping its end points
   function smoothLine(pts, iterations) {
     for (let k = 0; k < iterations; k++) {
@@ -354,11 +364,17 @@
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         if (!open[y][x]) continue;
-        if (solid(y - 1, x)) lines.push([vert(y, x), vert(y, x + 1)]);
+        if (y > 0 && solid(y - 1, x)) lines.push([vert(y, x), vert(y, x + 1)]);
         if (solid(y + 1, x) && !(y + 1 === padRow && (x === k || x === k + 1))) lines.push([vert(y + 1, x), vert(y + 1, x + 1)]);
         if (solid(y, x - 1)) lines.push([vert(y, x), vert(y + 1, x)]);
         if (solid(y, x + 1)) lines.push([vert(y, x + 1), vert(y + 1, x + 1)]);
       }
+    }
+    // openings in the top row lead straight up to open sky
+    for (let x = 0; x < COLS; x++) {
+      if (!open[0][x]) continue;
+      if (x === 0 || !open[0][x - 1]) { const [vx, vy] = vert(0, x); lines.push(wallUp(vx, vy, n * 31 + x)); }
+      if (x === COLS - 1 || !open[0][x + 1]) { const [vx, vy] = vert(0, x + 1); lines.push(wallUp(vx, vy, n * 37 + x)); }
     }
     const py = Y0 + padRow * C, xa = k * C, xb = (k + 2) * C, inset = (2 * C - padW) / 2;
     const pad = { x1: xa + inset, x2: xb - inset, y: py };
@@ -537,12 +553,12 @@
     floor.push([R, floorBase - 40 - rnd() * 40]);
     left.push([L, floor[0][1]]);
     right.push([R, floor[floor.length - 1][1]]);
-    // a rough domed roof over the top
-    const ceil = [left[0]];
-    for (const t of [0.2, 0.4, 0.6, 0.8]) ceil.push([lerp(left[0][0], right[0][0], t), -50 - Math.sin(Math.PI * t) * 70 + (rnd() - 0.5) * 24]);
-    ceil.push(right[0]);
+    // the walls rise to open sky (the draws keep the random sequence, and so the map, as it was)
+    for (let i = 0; i < 4; i++) rnd();
+    left = [...wallUp(left[0][0], left[0][1], n * 41).slice(0, -1), ...left];
+    right = [...wallUp(right[0][0], right[0][1], n * 43).slice(0, -1), ...right];
     const start = { x: ccx, y: floorBase - 170 };
-    const Lv = { lines: [ceil, left, right, floor], pad, start, top: -1500, fuel: Math.round(700 + (start.y - ly) * 0.9) };
+    const Lv = { lines: [left, right, floor], pad, start, top: -1500, fuel: Math.round(700 + (start.y - ly) * 0.9) };
     if (rnd() < 0.5) mirrorLevel(Lv);
     return Lv;
   }
