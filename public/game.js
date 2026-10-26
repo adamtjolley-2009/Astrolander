@@ -152,8 +152,6 @@
     { kind: 'canyon', seed: 4 },
     { kind: 'cavern', seed: 5, padW: 88 },
     { kind: 'cliff', seed: 6, padW: 80 },
-    { kind: 'snake', seed: 8 },
-    { kind: 'cavern', seed: 8, padW: 64, hard: true },
     { kind: 'snake', seed: 19 },
     { kind: 'canyon', seed: 12, smooth: true },
     { kind: 'canyon', seed: 20, extraDepth: 1500 },

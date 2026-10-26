@@ -3,7 +3,7 @@
 A browser tribute to the **Astrolander** minigame from *TimeSplitters 2*. Pilot a lunar lander and touch down on the landing pad with as much fuel, as little speed, and as much precision as you can.
 
 ## Levels
-Eleven fixed levels, the same for every player. Land on all of them to complete the mission.
+Nine fixed levels, the same for every player. Land on all of them to complete the mission.
 
 | # | Type | What it's like |
 | --- | --- | --- |
@@ -14,10 +14,8 @@ Eleven fixed levels, the same for every player. Land on all of them to complete 
 | 5 | Cavern | Drop down a shaft, cross the bottom, then climb up to a chamber with the pad |
 | 6 | Cliff | Start at the bottom of a canyon and climb to a pad on a ledge |
 | 7 | Snake | Switchback tunnels zig-zagging down |
-| 8 | Cavern | A harder cavern: deeper, narrower, a dog-leg on the way up, a smaller pad |
-| 9 | Snake | A longer snake |
-| 10 | Canyon | A deep canyon with smooth, curving walls |
-| 11 | Canyon | The longest canyon |
+| 8 | Canyon | A deep canyon with smooth, curving walls |
+| 9 | Canyon | The longest canyon |
 
 ## Controls
 | Action | Touch | Keyboard |
