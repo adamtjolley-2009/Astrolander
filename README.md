@@ -13,7 +13,7 @@ Nine fixed levels, the same for every player. Land on all of them to complete th
 | 4 | Canyon | A winding shaft straight down |
 | 5 | Cavern | Drop down a shaft, cross the bottom, then climb up to a chamber with the pad |
 | 6 | Cliff | Start at the bottom of a canyon and climb to a pad on a ledge |
-| 7 | Canyon | A deep canyon with smooth, curving walls |
+| 7 | Canyon | A deep, winding canyon |
 | 8 | Snake | Switchback tunnels zig-zagging down, with rough rocky walls |
 | 9 | Canyon | The longest canyon |
 

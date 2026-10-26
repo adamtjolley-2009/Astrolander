@@ -153,7 +153,7 @@
     { kind: 'canyon', seed: 4 },
     { kind: 'cavern', seed: 5, padW: 88, hiddenPad: 2000 },
     { kind: 'cliff', seed: 6, padW: 80 },
-    { kind: 'canyon', seed: 12, smooth: true },
+    { kind: 'canyon', seed: 12 },
     { kind: 'snake', seed: 19, organic: true },
     { kind: 'canyon', seed: 20, extraDepth: 1500 },
   ];
@@ -342,8 +342,7 @@
 
     const fuel = Math.round(650 + depth * 0.55 - n * 15);
     return {
-      // smooth: curved walls instead of sharp zig-zags
-      lines: opts.smooth ? [smoothLine(left, 3), smoothLine(right, 3), floor] : [left, right, floor],
+      lines: [left, right, floor],
       pad: { x1: padX1, x2: padX2, y: padY },
       start: { x: WORLD_W / 2, y: -120 }, fuel, top: -1400,
     };
