@@ -14,6 +14,7 @@
   const FUEL_BONUS_PER_UNIT = 5;
   const MAX_SPEED_BONUS = 1000;
   const MAX_ACCURACY_BONUS = 1000;
+  const SPIN_BONUS = 1000;     // per full 360 the ship turns before landing, revealed only in the tally
   const START_LIVES = 3;
   const WORLD_W = 1000;
 
@@ -808,7 +809,7 @@
   }
 
   function resetShip() {
-    ship = { x: level.start.x, y: level.start.y, vx: 0, vy: 0, a: 0, fuel: level.fuel, thrusting: false, alive: true };
+    ship = { x: level.start.x, y: level.start.y, vx: 0, vy: 0, a: 0, fuel: level.fuel, thrusting: false, alive: true, spin: 0, spins: 0 };
     cam.x = ship.x; cam.y = ship.y + 60;
   }
   function startGame() {
@@ -893,8 +894,10 @@
 
     const steps = 4, h = dt / steps;
     for (let i = 0; i < steps; i++) {
-      if (input.left) ship.a -= ROT_SPEED * h;
-      if (input.right) ship.a += ROT_SPEED * h;
+      if (input.left) { ship.a -= ROT_SPEED * h; ship.spin -= ROT_SPEED * h; }
+      if (input.right) { ship.a += ROT_SPEED * h; ship.spin += ROT_SPEED * h; }
+      // count full turns in either direction; turning back undoes progress on the current one
+      if (Math.abs(ship.spin) >= Math.PI * 2) { ship.spins++; ship.spin -= Math.sign(ship.spin) * Math.PI * 2; }
       ship.a = wrapAngle(ship.a);
       ship.thrusting = input.thrust && ship.fuel > 0;
       let ax = 0, ay = GRAVITY;
@@ -977,6 +980,7 @@
     const speedBonus = Math.round(MAX_SPEED_BONUS * clamp(1 - speed / Math.hypot(SAFE_VX, SAFE_VY), 0, 1));
     const padC = (p.x1 + p.x2) / 2, half = (p.x2 - p.x1) / 2 - 8;
     const accuracyBonus = Math.round(MAX_ACCURACY_BONUS * clamp(1 - Math.abs(ship.x - padC) / Math.max(half, 1), 0, 1));
+    const spinBonus = ship.spins * SPIN_BONUS;
     ship.vx = ship.vy = 0; ship.a = 0;
     tally = {
       rows: [
@@ -984,7 +988,8 @@
         { label: 'FUEL BONUS', value: fuelBonus, add: true },
         { label: 'LANDING SPEED BONUS', value: speedBonus, add: true },
         { label: 'LANDING ACCURACY BONUS', value: accuracyBonus, add: true },
-        { label: 'TOTAL', value: fuelBonus + speedBonus + accuracyBonus, add: false },
+        ...(spinBonus ? [{ label: 'SPIN BONUS X' + ship.spins, value: spinBonus, add: true }] : []),
+        { label: 'TOTAL', value: fuelBonus + speedBonus + accuracyBonus + spinBonus, add: false },
       ],
       i: -1, t: 0, pause: 0.6, ready: false,
     };
