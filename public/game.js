@@ -151,9 +151,8 @@
     { kind: 'open', seed: 3 },
     { kind: 'peak', seed: 14, padW: 96, mirror: true, startLowRight: true },
     { kind: 'cliff', seed: 6, padW: 80 },
-    { kind: 'cavern', seed: 5, padW: 88, hiddenPad: 2000 },
     { kind: 'canyon', seed: 4 },
-    { kind: 'canyon', seed: 12 },
+    { kind: 'cavern', seed: 5, padW: 88, hiddenPad: 2000 },
     { kind: 'snake', seed: 19, organic: true },
     { kind: 'canyon', seed: 20, extraDepth: 1500 },
   ];
