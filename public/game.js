@@ -136,23 +136,46 @@
   }
 
   // ---------- Level generation ----------
-  // Every level is built from its number, so all players fly the same maps.
+  // The campaign: a fixed list of levels. `seed` is the number a map is built from,
+  // so every player flies exactly the same maps.
   //   open:   wide sky over hilly ground
-  //   peak:   start low and land on top of a mountain
+  //   peak:   land on top of a mountain
   //   canyon: a winding shaft straight down
+  //   cavern: drop down a canyon, then go sideways and up through a cavern to the pad
+  //   cliff:  start at the bottom of a canyon and climb to a pad on a ledge
   //   snake:  switchback tunnels that zig-zag back and forth on the way down
-  function levelKind(n) {
-    const first = ['open', 'peak', 'open', 'canyon', 'peak', 'snake', 'canyon', 'snake', 'peak', 'snake'];
-    return n <= first.length ? first[n - 1] : ['snake', 'canyon', 'snake', 'peak'][(n - 11) % 4];
-  }
+  const LEVELS = [
+    { kind: 'open', seed: 1 },
+    { kind: 'open', seed: 3 },
+    { kind: 'peak', seed: 14, padW: 96, mirror: true, startLowRight: true },
+    { kind: 'canyon', seed: 4 },
+    { kind: 'cavern', seed: 5, padW: 88 },
+    { kind: 'cliff', seed: 6, padW: 80 },
+    { kind: 'snake', seed: 8 },
+    { kind: 'cavern', seed: 8, padW: 64, hard: true },
+    { kind: 'snake', seed: 19 },
+    { kind: 'canyon', seed: 12, smooth: true },
+    { kind: 'canyon', seed: 20, extraDepth: 1500 },
+  ];
   function genLevel(n) {
-    const rnd = mulberry32(n * 9973 + 1337);
-    const padW = Math.max(56, 120 - n * 8);
-    const kind = levelKind(n);
-    const L = kind === 'snake' ? genSnake(n, rnd, padW)
-      : kind === 'canyon' ? genCanyon(n, rnd, padW)
-      : genOpen(n, rnd, padW, kind === 'peak');
-    L.n = n; L.kind = kind;
+    const spec = LEVELS[clamp(n, 1, LEVELS.length) - 1];
+    const s = spec.seed;
+    const rnd = mulberry32(s * 9973 + 1337);
+    const padW = spec.padW || Math.max(56, 120 - s * 8);
+    const L = spec.kind === 'snake' ? genSnake(s, rnd, padW)
+      : spec.kind === 'canyon' ? genCanyon(s, rnd, padW, spec)
+      : spec.kind === 'cavern' ? genCavern(s, rnd, padW, spec.hard)
+      : spec.kind === 'cliff' ? genCliff(s, rnd, padW)
+      : genOpen(s, rnd, padW, spec.kind === 'peak');
+    if (spec.mirror) mirrorLevel(L);
+    if (spec.startLowRight) {
+      // start just above the ground near the bottom right corner
+      const x = WORLD_W - 120;
+      L.start = { x, y: groundAt(L.lines[0], x) - 110 };
+      L.top = L.start.y - 900;
+      L.fuel = Math.round(600 + Math.abs(L.start.y - L.pad.y) * 1.2 + Math.abs((L.pad.x1 + L.pad.x2) / 2 - x) * 0.9);
+    }
+    L.n = n; L.kind = spec.kind;
     // collision segments; the one matching the pad exactly is the only safe surface
     const { pad } = L;
     L.segs = [];
@@ -164,6 +187,34 @@
       }
     }
     return L;
+  }
+  function mirrorLevel(L) {
+    const m = ([x, y]) => [WORLD_W - x, y];
+    L.lines = L.lines.map((l) => l.map(m));
+    L.pad = { x1: WORLD_W - L.pad.x2, x2: WORLD_W - L.pad.x1, y: L.pad.y };
+    L.start = { x: WORLD_W - L.start.x, y: L.start.y };
+  }
+  // highest point of a terrain line at x
+  function groundAt(line, x) {
+    let y = Infinity;
+    for (let i = 0; i < line.length - 1; i++) {
+      const [ax, ay] = line[i], [bx, by] = line[i + 1];
+      if (x >= Math.min(ax, bx) && x <= Math.max(ax, bx) && ax !== bx) y = Math.min(y, lerp(ay, by, (x - ax) / (bx - ax)));
+    }
+    return y;
+  }
+  // round off a polyline's corners (Chaikin), keeping its end points
+  function smoothLine(pts, iterations) {
+    for (let k = 0; k < iterations; k++) {
+      const out = [pts[0]];
+      for (let i = 0; i < pts.length - 1; i++) {
+        const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+        out.push([ax * 0.75 + bx * 0.25, ay * 0.75 + by * 0.25], [ax * 0.25 + bx * 0.75, ay * 0.25 + by * 0.75]);
+      }
+      out.push(pts[pts.length - 1]);
+      pts = out;
+    }
+    return pts;
   }
 
   // Open sky over rolling ground. With peak = true the ship starts low, off to one
@@ -223,8 +274,8 @@
   }
 
   // A shaft that winds down to a landing chamber.
-  function genCanyon(n, rnd, padW) {
-    const depth = 900 + Math.min(n, 12) * 230;
+  function genCanyon(n, rnd, padW, opts = {}) {
+    const depth = 900 + Math.min(n, 12) * 230 + (opts.extraDepth || 0);
     const floorBase = depth + 300;
     const step = 130;
     const rows = [];
@@ -278,10 +329,41 @@
 
     const fuel = Math.round(650 + depth * 0.55 - n * 15);
     return {
-      lines: [left, right, floor],
+      // smooth: curved walls instead of sharp zig-zags
+      lines: opts.smooth ? [smoothLine(left, 3), smoothLine(right, 3), floor] : [left, right, floor],
       pad: { x1: padX1, x2: padX2, y: padY },
       start: { x: WORLD_W / 2, y: -120 }, fuel, top: -1400,
     };
+  }
+
+  // Trace the boundary between open and solid cells of a carved grid, roughening the
+  // corners. The pad sits flat on the floor of cells k and k+1 at lattice row padRow.
+  function traceGrid(open, { C, Y0, padRow, k, padW, n }) {
+    const ROWS = open.length, COLS = open[0].length;
+    const J = 12;
+    const vert = (i, j) => {
+      const h = mulberry32(i * 7919 + j * 104729 + n * 15485863);
+      let dx = (h() - 0.5) * 2 * J, dy = (h() - 0.5) * 2 * J;
+      if (i === padRow && j >= k - 1 && j <= k + 3) {
+        if (j >= k && j <= k + 2) { dx = 0; dy = 0; } else dy = Math.abs(dy);
+      }
+      return [j * C + dx, Y0 + i * C + dy];
+    };
+    const solid = (y, x) => y < 0 || y >= ROWS || x < 0 || x >= COLS || !open[y][x];
+    const lines = [];
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (!open[y][x]) continue;
+        if (solid(y - 1, x)) lines.push([vert(y, x), vert(y, x + 1)]);
+        if (solid(y + 1, x) && !(y + 1 === padRow && (x === k || x === k + 1))) lines.push([vert(y + 1, x), vert(y + 1, x + 1)]);
+        if (solid(y, x - 1)) lines.push([vert(y, x), vert(y + 1, x)]);
+        if (solid(y, x + 1)) lines.push([vert(y, x + 1), vert(y + 1, x + 1)]);
+      }
+    }
+    const py = Y0 + padRow * C, xa = k * C, xb = (k + 2) * C, inset = (2 * C - padW) / 2;
+    const pad = { x1: xa + inset, x2: xb - inset, y: py };
+    lines.push([[xa, py], [pad.x1, py], [pad.x2, py], [xb, py]]);
+    return { lines, pad };
   }
 
   // Switchback tunnels: carve corridors into a grid of rock, each one running the
@@ -347,33 +429,122 @@
       side = 1 - side;
     }
 
-    // trace the boundary between open and solid cells
-    const J = 12;
-    const vert = (i, j) => {
-      const h = mulberry32(i * 7919 + j * 104729 + n * 15485863);
-      let dx = (h() - 0.5) * 2 * J, dy = (h() - 0.5) * 2 * J;
-      if (i === padRow && j >= k - 1 && j <= k + 3) {
-        if (j >= k && j <= k + 2) { dx = 0; dy = 0; } else dy = Math.abs(dy);
-      }
-      return [j * C + dx, Y0 + i * C + dy];
-    };
-    const solid = (y, x) => y < 0 || y >= ROWS || x < 0 || x >= COLS || !open[y][x];
-    const lines = [];
-    for (let y = 0; y < ROWS; y++) {
-      for (let x = 0; x < COLS; x++) {
-        if (!open[y][x]) continue;
-        if (solid(y - 1, x)) lines.push([vert(y, x), vert(y, x + 1)]);
-        if (solid(y + 1, x) && !(y + 1 === padRow && (x === k || x === k + 1))) lines.push([vert(y + 1, x), vert(y + 1, x + 1)]);
-        if (solid(y, x - 1)) lines.push([vert(y, x), vert(y + 1, x)]);
-        if (solid(y, x + 1)) lines.push([vert(y, x + 1), vert(y + 1, x + 1)]);
-      }
-    }
-    const py = Y0 + padRow * C, xa = k * C, xb = (k + 2) * C, inset = (2 * C - padW) / 2;
-    const pad = { x1: xa + inset, x2: xb - inset, y: py };
-    lines.push([[xa, py], [pad.x1, py], [pad.x2, py], [xb, py]]);
+    const { lines, pad } = traceGrid(open, { C, Y0, padRow, k, padW, n });
 
     const pathLen = K * (COLS - 2 - SHAFT) * C + ROWS * C;
     return { lines, pad, start, fuel: Math.round(400 + pathLen * 0.9), top: Y0 - 1000 };
+  }
+
+  // Drop down a canyon, then turn sideways and climb up through a cavern to a pad
+  // on the floor of an upper chamber. hard: narrower, deeper, with a dog-leg on the
+  // way up and outcrops in the bottom tunnel.
+  function genCavern(n, rnd, padW, hard) {
+    const C = 50, COLS = WORLD_W / C, Y0 = -300;
+    const SW = hard ? 3 : 4;                 // passage width in cells
+    const D = hard ? 25 : 18;                // bottom row of the drop
+    const ROWS = D + 2;
+    const open = Array.from({ length: ROWS }, () => new Array(COLS).fill(false));
+    const carve = (r0, r1, c0, c1) => {
+      for (let y = r0; y <= r1; y++) for (let x = c0; x <= c1; x++) {
+        if (y >= 0 && y < ROWS && x >= 1 && x <= COLS - 2) open[y][x] = true;
+      }
+    };
+    // the drop: a shaft that drifts a little from side to side
+    let col = 2;
+    const startCol = col;
+    for (let r = 0; r <= D; r++) {
+      if (r > 3 && r % (hard ? 2 : 3) === 0) col = clamp(col + Math.floor(rnd() * 3) - 1, 1, hard ? 5 : 4);
+      carve(r, r, col, col + SW - 1);
+    }
+    const TH = hard ? 3 : 4;                 // bottom tunnel height
+    let padRow, k, climb;
+    if (!hard) {
+      // bottom tunnel -> one shaft up -> chamber to the side with the pad
+      carve(D - TH + 1, D, col, 15);
+      carve(3, D, 12, 15);
+      carve(3, 6, 12, 18);
+      padRow = 7; k = 16; climb = (D - 5) * C;
+    } else {
+      // bottom tunnel -> shaft up -> sideways back -> shaft up -> low chamber with the pad
+      carve(D - TH + 1, D, col, 17);
+      carve(14, D, 15, 17);
+      carve(14, 16, 10, 17);
+      carve(3, 16, 10, 12);
+      carve(3, 5, 10, 17);
+      padRow = 6; k = 14; climb = (D - 4) * C;
+      // outcrops along the bottom tunnel, always attached to rock
+      for (let c = col + SW + 1; c <= 13; c++) {
+        if (rnd() > 0.35) continue;
+        const up = rnd() < 0.5, r = up ? D - TH + 1 : D;
+        if (up ? open[r - 1][c] : open[r + 1][c]) continue;
+        open[r][c] = false; c++;
+      }
+    }
+    const { lines, pad } = traceGrid(open, { C, Y0, padRow, k, padW, n: n + 500 });
+    const start = { x: (startCol + SW / 2) * C, y: Y0 + 1.5 * C };
+    const across = Math.abs((pad.x1 + pad.x2) / 2 - start.x);
+    const L = { lines, pad, start, top: Y0 - 1000, fuel: Math.round(700 + D * C * 0.5 + across * 1.2 + climb * 1.6) };
+    if (rnd() < 0.5) mirrorLevel(L);
+    return L;
+  }
+
+  // A canyon you start at the bottom of; the pad is on a ledge sticking out of one wall.
+  function genCliff(n, rnd, padW) {
+    const depth = 1300, step = 130;
+    const rows = [];
+    let cx = WORLD_W / 2;
+    for (let y = 0; y <= depth; y += step) {
+      const w = 390 + rnd() * 110;
+      cx = clamp(cx, w / 2 + 25, WORLD_W - w / 2 - 25);
+      rows.push({ y, cx, w });
+      cx += (rnd() - 0.5) * 2 * 70;
+    }
+    const last = rows[rows.length - 1];
+    const chamberW = Math.max(460, last.w + 100);
+    const ccx = clamp(last.cx, chamberW / 2 + 15, WORLD_W - chamberW / 2 - 15);
+    rows.push({ y: depth + 120, cx: ccx, w: chamberW });
+    const jag = 18;
+    let left = [], right = [];
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      left.push([r.cx - r.w / 2 + (rnd() - 0.5) * jag, r.y]);
+      right.push([r.cx + r.w / 2 + (rnd() - 0.5) * jag, r.y]);
+      if (i < rows.length - 1) {
+        const nr = rows[i + 1], my = (r.y + nr.y) / 2;
+        left.push([(r.cx - r.w / 2 + nr.cx - nr.w / 2) / 2 + (rnd() - 0.2) * jag * 1.6, my]);
+        right.push([(r.cx + r.w / 2 + nr.cx + nr.w / 2) / 2 - (rnd() - 0.2) * jag * 1.6, my]);
+      }
+    }
+    // the ledge on the right wall, about a quarter of the way down
+    const li = 3, ly = rows[li].y;
+    const ai = right.findIndex((q) => q[1] === ly);
+    const xr = Math.round(right[ai][0]);
+    right[ai] = [xr, ly];
+    const pad = { x2: xr - 18, x1: xr - 18 - padW, y: ly };
+    // keep the wall above the ledge set back so nothing overhangs the pad
+    for (const q of right) if (q[1] < ly && q[1] >= ly - 320) q[0] = Math.max(q[0], xr + 4);
+    const below = right.findIndex((q) => q[1] > ly + 150);
+    right = [
+      ...right.slice(0, ai + 1),
+      [pad.x2, ly], [pad.x1, ly], [pad.x1 - 10, ly + 12],
+      [lerp(pad.x1, right[below][0], 0.45), ly + 75],
+      ...right.slice(below),
+    ];
+    // floor of the bottom chamber
+    const L = ccx - chamberW / 2, R = ccx + chamberW / 2, floorBase = depth + 300;
+    const floor = [[L, floorBase - 40 - rnd() * 40]];
+    for (let x = L + 35; x < R - 20; x += 35 + rnd() * 20) floor.push([x, floorBase - 10 - rnd() * 45]);
+    floor.push([R, floorBase - 40 - rnd() * 40]);
+    left.push([L, floor[0][1]]);
+    right.push([R, floor[floor.length - 1][1]]);
+    // a rough domed roof over the top
+    const ceil = [left[0]];
+    for (const t of [0.2, 0.4, 0.6, 0.8]) ceil.push([lerp(left[0][0], right[0][0], t), -50 - Math.sin(Math.PI * t) * 70 + (rnd() - 0.5) * 24]);
+    ceil.push(right[0]);
+    const start = { x: ccx, y: floorBase - 170 };
+    const Lv = { lines: [ceil, left, right, floor], pad, start, top: -1500, fuel: Math.round(700 + (start.y - ly) * 0.9) };
+    if (rnd() < 0.5) mirrorLevel(Lv);
+    return Lv;
   }
 
   // ---------- Audio ----------
@@ -576,7 +747,7 @@
   $('musicBtn').setAttribute('aria-pressed', String(music.muted));
 
   // ---------- Game state ----------
-  // title | ready | flying | paused | crashed | results | gameover | entry | board
+  // title | ready | flying | paused | crashed | results | gameover | complete | entry | board
   let state = 'title', stateAge = 0;
   let level = null, levelNum = 1, score = 0, lives = START_LIVES;
   let ship = null, cam = { x: WORLD_W / 2, y: 0 };
@@ -606,6 +777,7 @@
         else if (key === 'left') toTitle();
         break;
       case 'gameover':
+      case 'complete':
         if (key === 'thrust' && stateAge > 1) afterGameOver();
         break;
       case 'entry':
@@ -633,7 +805,10 @@
     particles = []; debris = [];
     setState('ready'); stateTimer = 2;
   }
-  function nextLevel() { levelNum++; loadLevel(); }
+  function nextLevel() {
+    if (levelNum >= LEVELS.length) { setState('complete'); stateTimer = 5; return; }
+    levelNum++; loadLevel();
+  }
   function togglePause() {
     if (state === 'flying') setState('paused');
     else if (state === 'paused') setState('flying');
@@ -688,6 +863,7 @@
         return;
       case 'results': updateTally(dt); updateCamera(dt); return;
       case 'gameover':
+      case 'complete':
         stateTimer -= dt;
         if (stateTimer <= 0) afterGameOver();
         return;
@@ -1154,6 +1330,10 @@
       vtext('PAUSED', W / 2, H * 0.26, small ? 24 : 32, 'center');
       vtext('PUSH THRUST TO RESUME', W / 2, H * 0.26 + 60, fitSize(21, 13), 'center', 0.9);
       vtext('PUSH < TO QUIT', W / 2, H * 0.26 + 90, fitSize(21, 13), 'center', 0.9);
+    } else if (state === 'complete') {
+      vtext('MISSION COMPLETE', W / 2, H * 0.28, fitSize(16, 34), 'center');
+      vtext('ALL ' + LEVELS.length + ' LEVELS LANDED', W / 2, H * 0.28 + (small ? 46 : 62), fitSize(22, 15), 'center', 0.9);
+      vtext('SCORE ' + score, W / 2, H * 0.28 + (small ? 80 : 104), small ? 13 : 16, 'center', 0.9);
     } else if (state === 'gameover') {
       vtext('GAME OVER', W / 2, H * 0.3, small ? 28 : 40, 'center');
       vtext('SCORE ' + score, W / 2, H * 0.3 + (small ? 50 : 70), small ? 13 : 16, 'center', 0.9);
