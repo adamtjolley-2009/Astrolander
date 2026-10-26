@@ -14,7 +14,7 @@
   const FUEL_BONUS_PER_UNIT = 5;
   const MAX_SPEED_BONUS = 1000;
   const MAX_ACCURACY_BONUS = 1000;
-  const SPIN_BONUS = 1000;     // per full 360 the ship turns before landing, revealed only in the tally
+  const SPIN_BONUS = 250;      // per full 360 the ship turns before landing, revealed only in the tally
   const START_LIVES = 3;
   const WORLD_W = 1000;
 
