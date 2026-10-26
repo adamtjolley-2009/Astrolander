@@ -150,7 +150,7 @@
     { kind: 'open', seed: 3 },
     { kind: 'peak', seed: 14, padW: 96, mirror: true, startLowRight: true },
     { kind: 'canyon', seed: 4 },
-    { kind: 'cavern', seed: 5, padW: 88 },
+    { kind: 'cavern', seed: 5, padW: 88, hiddenPad: 2000 },
     { kind: 'cliff', seed: 6, padW: 80 },
     { kind: 'canyon', seed: 12, smooth: true },
     { kind: 'snake', seed: 19, organic: true },
@@ -163,7 +163,7 @@
     const padW = spec.padW || Math.max(56, 120 - s * 8);
     const L = spec.kind === 'snake' ? genSnake(s, rnd, padW, spec.organic)
       : spec.kind === 'canyon' ? genCanyon(s, rnd, padW, spec)
-      : spec.kind === 'cavern' ? genCavern(s, rnd, padW, spec.hard)
+      : spec.kind === 'cavern' ? genCavern(s, rnd, padW, spec.hard, spec.hiddenPad)
       : spec.kind === 'cliff' ? genCliff(s, rnd, padW)
       : genOpen(s, rnd, padW, spec.kind === 'peak');
     if (spec.mirror) mirrorLevel(L);
@@ -176,12 +176,12 @@
     }
     L.n = n; L.kind = spec.kind;
     // collision segments; the one matching the pad exactly is the only safe surface
-    const { pad } = L;
+    const pads = [L.pad, L.hiddenPad].filter(Boolean);
     L.segs = [];
     for (const pts of L.lines) {
       for (let i = 0; i < pts.length - 1; i++) {
         const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
-        const isPad = ay === pad.y && by === pad.y && Math.min(ax, bx) === pad.x1 && Math.max(ax, bx) === pad.x2;
+        const isPad = pads.some((pad) => ay === pad.y && by === pad.y && Math.min(ax, bx) === pad.x1 && Math.max(ax, bx) === pad.x2);
         L.segs.push(withBounds({ ax, ay, bx, by, pad: isPad }));
       }
     }
@@ -190,7 +190,9 @@
   function mirrorLevel(L) {
     const m = ([x, y]) => [WORLD_W - x, y];
     L.lines = L.lines.map((l) => l.map(m));
-    L.pad = { x1: WORLD_W - L.pad.x2, x2: WORLD_W - L.pad.x1, y: L.pad.y };
+    const mp = (p) => ({ ...p, x1: WORLD_W - p.x2, x2: WORLD_W - p.x1 });
+    L.pad = mp(L.pad);
+    if (L.hiddenPad) L.hiddenPad = mp(L.hiddenPad);
     L.start = { x: WORLD_W - L.start.x, y: L.start.y };
   }
   // highest point of a terrain line at x
@@ -513,7 +515,7 @@
   // Drop down a canyon, then turn sideways and climb up through a cavern to a pad
   // on the floor of an upper chamber. hard: narrower, deeper, with a dog-leg on the
   // way up and outcrops in the bottom tunnel.
-  function genCavern(n, rnd, padW, hard) {
+  function genCavern(n, rnd, padW, hard, hiddenBonus) {
     const C = 50, COLS = WORLD_W / C, Y0 = -300;
     const SW = hard ? 3 : 4;                 // passage width in cells
     const D = hard ? 25 : 18;                // bottom row of the drop
@@ -559,6 +561,21 @@
     const start = { x: (startCol + SW / 2) * C, y: Y0 + 1.5 * C };
     const across = Math.abs((pad.x1 + pad.x2) / 2 - start.x);
     const L = { lines, pad, start, top: Y0 - 1000, fuel: Math.round(700 + D * C * 0.5 + across * 1.2 + climb * 1.6) };
+    if (hiddenBonus) {
+      // Hidden pad: the inner wall of the drop shaft stops at a cliff top well above the
+      // start, out of view, and the rock behind it forms a plateau with a second pad.
+      const inner = lines.filter((l) => l[0][1] === OPEN_TOP).sort((a, b) => b[0][0] - a[0][0])[0];
+      const topY = -760;
+      const face = inner.filter((q) => q[1] > topY + 30);
+      const edgeX = Math.round(face[0][0]);
+      const hp = { x1: edgeX + 45, x2: edgeX + 45 + 80, y: topY, bonus: hiddenBonus };
+      const R = WORLD_W - 15;
+      const plateau = [[R, OPEN_TOP], [R, topY - 10]];
+      for (let x = R - 40; x > hp.x2 + 30; x -= 35 + rnd() * 25) plateau.push([x, topY - 4 - rnd() * 22]);
+      plateau.push([hp.x2 + 8, topY + 6], [hp.x2, topY], [hp.x1, topY], [hp.x1 - 8, topY + 6], [edgeX, topY + 4], ...face);
+      lines[lines.indexOf(inner)] = plateau;
+      L.hiddenPad = hp;
+    }
     if (rnd() < 0.5) mirrorLevel(L);
     return L;
   }
@@ -973,11 +990,11 @@
       const c = collide();
       if (c.hit) {
         const feet = shipPoly(ship.x, ship.y, ship.a, FEET);
-        const p = level.pad;
-        const feetOnPad = feet.every(([fx]) => fx >= p.x1 - 1 && fx <= p.x2 + 1);
+        const p = [level.pad, level.hiddenPad].find((q) => q && Math.abs(ship.y + FOOT_Y - q.y) < 20 &&
+          feet.every(([fx]) => fx >= q.x1 - 1 && fx <= q.x2 + 1));
         const upright = Math.abs(ship.a) <= SAFE_ANGLE;
         const slow = ship.vy <= SAFE_VY && Math.abs(ship.vx) <= SAFE_VX;
-        if (c.onlyPad && feetOnPad && upright && slow) land();
+        if (c.onlyPad && p && upright && slow) land(p);
         else crash();
         return;
       }
@@ -1026,10 +1043,9 @@
     }
   }
 
-  function land() {
+  function land(p) {
     ship.vy = Math.max(0, ship.vy);
     const speed = Math.hypot(ship.vx, ship.vy);
-    const p = level.pad;
     ship.y = p.y - FOOT_Y;
     ship.thrusting = false;
 
@@ -1047,7 +1063,8 @@
         { label: 'LANDING SPEED BONUS', value: speedBonus, add: true },
         { label: 'LANDING ACCURACY BONUS', value: accuracyBonus, add: true },
         ...(spinBonus ? [{ label: 'SPIN BONUS X' + ship.spins, value: spinBonus, add: true }] : []),
-        { label: 'TOTAL', value: fuelBonus + speedBonus + accuracyBonus + spinBonus, add: false },
+        ...(p.bonus ? [{ label: 'HIDDEN PAD BONUS', value: p.bonus, add: true }] : []),
+        { label: 'TOTAL', value: fuelBonus + speedBonus + accuracyBonus + spinBonus + (p.bonus || 0), add: false },
       ],
       i: -1, t: 0, pause: 0.6, ready: false,
     };
@@ -1210,17 +1227,20 @@
     for (const l of lines) polyPath(l);
     glow(lw, 0.8);
 
-    // landing pad: a brighter, thicker double line with blinking end markers
+    // landing pads: a brighter, thicker double line with blinking end markers
     const bright = 0.75 + 0.25 * Math.sin(time * 6);
-    ctx.beginPath();
-    ctx.moveTo(pad.x1, pad.y); ctx.lineTo(pad.x2, pad.y);
-    ctx.moveTo(pad.x1 + 4, pad.y + 4); ctx.lineTo(pad.x2 - 4, pad.y + 4);
-    glow(2.4 / scale, bright);
-    if (Math.sin(time * 6) > 0) {
+    for (const p of [pad, level.hiddenPad]) {
+      if (!p) continue;
       ctx.beginPath();
-      ctx.moveTo(pad.x1, pad.y - 1); ctx.lineTo(pad.x1, pad.y - 9);
-      ctx.moveTo(pad.x2, pad.y - 1); ctx.lineTo(pad.x2, pad.y - 9);
-      glow(1.6 / scale, 1);
+      ctx.moveTo(p.x1, p.y); ctx.lineTo(p.x2, p.y);
+      ctx.moveTo(p.x1 + 4, p.y + 4); ctx.lineTo(p.x2 - 4, p.y + 4);
+      glow(2.4 / scale, bright);
+      if (Math.sin(time * 6) > 0) {
+        ctx.beginPath();
+        ctx.moveTo(p.x1, p.y - 1); ctx.lineTo(p.x1, p.y - 9);
+        ctx.moveTo(p.x2, p.y - 1); ctx.lineTo(p.x2, p.y - 9);
+        glow(1.6 / scale, 1);
+      }
     }
   }
 
